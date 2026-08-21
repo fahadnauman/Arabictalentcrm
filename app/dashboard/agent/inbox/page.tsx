@@ -36,9 +36,7 @@ function timeAgo(date: Date): string {
 }
 
 // ── Page ───────────────────────────────────────────────────────────────────
-export default async function AgentInboxPage({ searchParams }: { searchParams: Promise<{ filter?: string }> }) {
-  const resolvedParams = await searchParams;
-  const currentFilter = resolvedParams.filter || "ALL";
+export default async function AgentInboxPage() {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) redirect("/login");

@@ -1,0 +1,21 @@
+{
+  "name": "Arabic Talent CRM",
+  "short_name": "AT CRM",
+  "description": "Sales CRM for Arabic Talent",
+  "start_url": "/dashboard/agent/inbox",
+  "display": "standalone",
+  "background_color": "#0F0F13",
+  "theme_color": "#0F0F13",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

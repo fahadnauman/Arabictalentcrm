@@ -1,0 +1,181 @@
+/* ── Feed container ─────────────────────────────────────────────────────── */
+.feed {
+  flex: 1;
+  padding: 1rem 1rem 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.emptyFeed {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+.emptyIcon { opacity: 0.6; }
+.emptyTitle {
+  font-size: 1rem; font-weight: 700;
+  color: rgba(240,240,255,0.5);
+}
+.emptyBody {
+  font-size: 0.78rem; line-height: 1.65;
+  color: rgba(139,138,168,0.7);
+}
+
+/* ── Date divider ───────────────────────────────────────────────────────── */
+.dateDivider {
+  display: flex; align-items: center; gap: 0.75rem;
+  margin: 0.75rem 0 0.5rem; padding: 0 0.25rem;
+}
+.dateDividerLine {
+  flex: 1; height: 1px;
+  background: rgba(255,255,255,0.06);
+}
+.dateDividerLabel {
+  font-size: 0.65rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #4e4d6a;
+  white-space: nowrap; padding: 0.15rem 0.5rem;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 999px;
+}
+
+/* ── Bubble wrapper (controls alignment) ───────────────────────────────── */
+.bubbleWrap {
+  display: flex; align-items: flex-end; gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.bubbleWrapIn  { flex-direction: row;         justify-content: flex-start; }
+.bubbleWrapOut { flex-direction: row-reverse;  justify-content: flex-start; }
+
+/* ── Inbound sender dot ─────────────────────────────────────────────────── */
+.inAvatar {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: rgba(124,58,237,0.3); border: 1px solid rgba(124,58,237,0.4);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.55rem; color: #a78bfa; flex-shrink: 0;
+  margin-bottom: 4px;
+}
+
+/* ── Bubble ─────────────────────────────────────────────────────────────── */
+.bubble {
+  max-width: 78%; min-width: 60px;
+  padding: 0.6rem 0.85rem 0.4rem;
+  border-radius: 16px;
+  position: relative;
+}
+
+/* Inbound — from lead */
+.bubbleIn {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-bottom-left-radius: 4px;
+}
+
+/* Outbound — from agent */
+.bubbleOut {
+  background: rgba(124,58,237,0.22);
+  border: 1px solid rgba(124,58,237,0.35);
+  border-bottom-right-radius: 4px;
+}
+
+/* Optimistic pending */
+.bubblePending {
+  opacity: 0.65;
+}
+
+/* Failed send */
+.bubbleFailed {
+  border-color: rgba(248,113,113,0.5) !important;
+  background: rgba(248,113,113,0.08) !important;
+}
+
+/* ── Bubble content ─────────────────────────────────────────────────────── */
+.bubbleText {
+  font-size: 0.875rem; line-height: 1.55;
+  color: #f0f0ff; word-break: break-word;
+  white-space: pre-wrap;
+}
+.bubbleMeta {
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 0.3rem; margin-top: 0.25rem;
+}
+.bubbleTime {
+  font-size: 0.6rem; color: rgba(139,138,168,0.7);
+}
+.bubbleStatus {
+  font-size: 0.6rem; color: #20C997; letter-spacing: -0.02em;
+}
+
+/* ── Error banner ───────────────────────────────────────────────────────── */
+.errorBanner {
+  margin: 0.5rem 0;
+  padding: 0.5rem 0.85rem;
+  background: rgba(248,113,113,0.1);
+  border: 1px solid rgba(248,113,113,0.3);
+  border-radius: 10px;
+  font-size: 0.75rem; color: #f87171; text-align: center;
+}
+
+/* ── Input bar ──────────────────────────────────────────────────────────── */
+.inputBar {
+  display: flex; align-items: flex-end; gap: 0.6rem;
+  padding: 0.65rem 1rem 0.75rem;
+  background: rgba(8,12,24,0.97);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
+}
+
+.inputWrap {
+  flex: 1; position: relative;
+}
+
+.input {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 0.65rem 2.5rem 0.65rem 0.9rem;
+  color: #f0f0ff;
+  font-size: 0.875rem; font-family: inherit;
+  resize: none; outline: none;
+  min-height: 42px; max-height: 120px;
+  line-height: 1.5;
+  transition: border-color 0.2s, background 0.2s;
+  overflow-y: auto;
+}
+.input::placeholder { color: #4e4d6a; }
+.input:focus {
+  border-color: rgba(124,58,237,0.5);
+  background: rgba(255,255,255,0.06);
+}
+.input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.charCount {
+  position: absolute; bottom: 0.4rem; right: 0.65rem;
+  font-size: 0.6rem; color: #4e4d6a; pointer-events: none;
+}
+
+.sendBtn {
+  width: 42px; height: 42px; border-radius: 12px; border: none;
+  cursor: pointer; flex-shrink: 0;
+  background: linear-gradient(135deg, #20c997, #10b981);
+  color: white;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 3px 14px rgba(124,58,237,0.45);
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.sendBtn:hover:not(:disabled) {
+  transform: scale(1.06);
+  box-shadow: 0 4px 18px rgba(124,58,237,0.6);
+}
+.sendBtn:active:not(:disabled) { transform: scale(0.96); }
+.sendBtn:disabled { opacity: 0.35; cursor: not-allowed; }

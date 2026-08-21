@@ -1,0 +1,39 @@
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+}
+
+:root {
+  --bg-deep:       #07080f;
+  --bg-mid:        #0d0f1e;
+  --card-bg:       rgba(255, 255, 255, 0.04);
+  --card-border:   rgba(255, 255, 255, 0.09);
+  --accent-1:      #20c997;
+  --accent-2:      #10b981;
+  --accent-gold:   #d4a74a;
+  --text-primary:  #f1f0ff;
+  --text-muted:    #8b8aa8;
+  --input-bg:      rgba(255, 255, 255, 0.05);
+  --input-border:  rgba(255, 255, 255, 0.1);
+  --input-focus:   rgba(32, 201, 151, 0.6);
+  --error:         #f87171;
+  --success:       #4ade80;
+}
+
+html,
+body {
+  height: 100%;
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg-deep);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}

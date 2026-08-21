@@ -1,0 +1,416 @@
+// ============================================================
+// Nauman Labs CRM — Prisma Schema
+// Database: PostgreSQL
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+/// The two platform roles controlling access level.
+enum Role {
+  ADMIN   // Full analytics, agent management, all leads
+  AGENT   // Restricted to own inbox + lead status updates
+}
+
+/// Lifecycle state of every lead — matches the Arabic Talent sales pipeline.
+enum LeadStatus {
+  NEW_LEAD            // Fresh lead, not yet contacted
+  THINKING            // Legacy thinking state
+  INTERESTED          // Lead is considering, active conversation ongoing
+  NOT_INTERESTED      // Lead explicitly declined
+  NO_RESPONSE         // Contacted but no reply received
+  WAITING_FOR_PAYMENT // Deal agreed, waiting for funds
+  CLOSED              // Deal won / successfully converted
+  FOLLOWUP            // Follow up required
+  DEMO_ATTENDED       // Attended demo
+}
+
+/// Direction of a WhatsApp/Twilio message.
+enum MessageDirection {
+  INBOUND   // From the lead (customer) to the platform
+  OUTBOUND  // From an agent to the lead
+}
+
+/// Delivery/read state reported by Twilio webhooks.
+enum MessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  UNDELIVERED
+  RECEIVED
+}
+
+/// Payment completion status for a closed deal.
+enum PaymentStatus {
+  PENDING  // Waiting for payment
+  PARTIAL  // Deposit paid, remainder pending
+  FULL     // Payment received in full
+}
+
+// ============================================================
+// USERS  (Admin / Manager + Sales Agents)
+// ============================================================
+
+model User {
+  id       String  @id @default(cuid())
+  email    String  @unique
+  phone    String?
+  name          String
+  avatarUrl     String?
+  password      String?
+  /// Hashed password (bcrypt).
+  passwordHash  String?
+
+  role          Role     @default(AGENT)
+  /// Which language pool this agent belongs to (e.g. "ENGLISH", "MALAYALAM").
+  languageGroup String   @default("ENGLISH")
+
+  /// Soft-delete / deactivation instead of hard delete.
+  isActive      Boolean  @default(true)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // ── Relations ──────────────────────────────────────────
+  /// Leads currently assigned to this agent.
+  assignedLeads Lead[]           @relation("AssignedAgent")
+
+  /// Leads this user created / imported manually.
+  createdLeads  Lead[]           @relation("LeadCreatedBy")
+
+  /// Outbound messages sent by this user.
+  sentMessages  Message[]        @relation("SentByAgent")
+
+  /// Audit log entries performed by this user.
+  auditLogs     AuditLog[]
+
+  /// Performance snapshots owned by this agent (generated daily).
+  agentMetrics  AgentMetric[]
+
+  /// Round-robin queue slot for this agent.
+  rrqueueSlot   RoundRobinQueue?
+
+  /// Work sessions (clock-in/out) for analytics.
+  sessions      AgentSession[]
+
+  @@map("users")
+}
+
+// ============================================================
+// LEADS  (one lead = one customer contact)
+// ============================================================
+
+model Lead {
+  id              String     @id @default(cuid())
+
+  /// Display name parsed from WhatsApp profile or entered manually.
+  name            String
+
+  /// E.164 formatted WhatsApp number, e.g. +923001234567
+  phone           String     @unique
+
+  email           String?
+  company         String?
+  profession      String?
+  country         String?
+  notes           String?
+
+  status          LeadStatus @default(NEW_LEAD)
+
+  /// ISO 4217 currency code for the deal value, e.g. "USD"
+  dealCurrency    String?    @default("USD")
+
+  /// Expected or actual deal value in minor units (cents/paisa).
+  dealValueCents  BigInt?
+
+  /// Source tag: "whatsapp", "manual", "import", etc.
+  source          String     @default("whatsapp")
+
+  /// Type of course/product sold — populated when status = CLOSED.
+  courseType      String?
+
+  /// Whether the deal payment was partial or fully collected.
+  paymentStatus   PaymentStatus?
+
+  /// The Twilio-assigned WhatsApp conversation SID for this lead.
+  twilioConversationSid String? @unique
+
+  /// Which agent currently owns this lead.
+  assignedAgentId String?
+  assignedAgent   User?      @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
+
+  /// Who first entered/created this lead record.
+  createdById     String?
+  createdBy       User?      @relation("LeadCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  /// Timestamp the lead was first assigned to any agent.
+  firstAssignedAt DateTime?
+
+  /// Timestamp the lead's status last changed.
+  statusChangedAt DateTime?
+
+  /// Timestamp the lead was marked CLOSED (for revenue analytics).
+  closedAt        DateTime?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  // ── Relations ──────────────────────────────────────────
+  messages        Message[]
+  tags            LeadTag[]
+  statusHistory   LeadStatusHistory[]
+  assignments     LeadAssignment[]
+
+  @@index([assignedAgentId, status, createdAt(sort: Desc)])
+  @@index([assignedAgentId, status, dealValueCents]) // Covering index for revenue aggregate
+  @@index([status])
+  @@index([createdAt])
+  @@index([phone])
+  @@map("leads")
+}
+
+// ============================================================
+// MESSAGES  (WhatsApp / Twilio thread per lead)
+// ============================================================
+
+model Message {
+  id          String           @id @default(cuid())
+
+  /// Twilio Message SID — used for deduplication and webhook matching.
+  twilioSid   String?          @unique
+
+  leadId      String
+  lead        Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  direction   MessageDirection
+  status      MessageStatus    @default(RECEIVED)
+
+  /// Plain-text body of the message.
+  body        String           @db.Text
+
+  /// For media messages: MIME type ("image/jpeg", "audio/ogg", etc.)
+  mediaType   String?
+
+  /// For media messages: publicly accessible URL (Twilio CDN or S3).
+  mediaUrl    String?
+
+  /// Whether the message is a reply to a WhatsApp status update
+  isStatusReply Boolean @default(false)
+
+  /// The agent who sent this message (null for INBOUND messages).
+  sentById    String?
+  sentBy      User?            @relation("SentByAgent", fields: [sentById], references: [id], onDelete: SetNull)
+
+  /// Twilio webhook payload stored verbatim for debugging.
+  rawPayload  Json?
+
+  /// When Twilio reports the message was delivered / read.
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  sentAt      DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+
+  @@index([leadId, sentAt])
+  @@index([twilioSid])
+  @@map("messages")
+}
+
+// ============================================================
+// AGENT SESSIONS
+// ============================================================
+
+model AgentSession {
+  id        String    @id @default(cuid())
+  agentId   String
+  agent     User      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  clockIn   DateTime  @default(now())
+  clockOut  DateTime?
+  
+  @@index([agentId, clockIn])
+  @@map("agent_sessions")
+}
+
+// ============================================================
+// LEAD STATUS HISTORY  (audit trail for every status change)
+// ============================================================
+
+model LeadStatusHistory {
+  id          String     @id @default(cuid())
+
+  leadId      String
+  lead        Lead       @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  fromStatus  LeadStatus?
+  toStatus    LeadStatus
+  changedById String?
+  note        String?
+
+  changedAt   DateTime   @default(now())
+
+  @@index([leadId])
+  @@map("lead_status_history")
+}
+
+// ============================================================
+// LEAD ASSIGNMENT LOG  (every time a lead changes agent hands)
+// ============================================================
+
+model LeadAssignment {
+  id            String    @id @default(cuid())
+
+  leadId        String
+  lead          Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  /// The agent who received the lead. Null if unassigned.
+  assignedToId  String?
+
+  /// Who triggered this assignment: "round_robin", "admin", "system"
+  assignedBy    String    @default("round_robin")
+
+  assignedAt    DateTime  @default(now())
+
+  @@index([leadId])
+  @@index([assignedToId])
+  @@map("lead_assignments")
+}
+
+// ============================================================
+// ROUND-ROBIN QUEUE  (n8n engine state)
+// ============================================================
+
+/// Maintains the cursor that the n8n round-robin engine uses
+/// to decide which active agent gets the next incoming lead.
+model RoundRobinQueue {
+  id            String   @id @default(cuid())
+
+  /// The agent this slot belongs to.
+  agentId       String   @unique
+  agent         User     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Sort order in the rotation (lower = earlier in queue).
+  position      Int      @default(0)
+
+  /// The sequential counter — n8n reads the lowest-position active agent
+  /// whose lastAssignedAt is oldest.
+  lastAssignedAt DateTime @default(now())
+
+  /// Temporarily remove agent from rotation (e.g. on leave).
+  isActive      Boolean  @default(true)
+
+  updatedAt     DateTime @updatedAt
+
+  @@map("round_robin_queue")
+}
+
+// ============================================================
+// TAGS  (flexible labelling for leads)
+// ============================================================
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  color String    @default("#6366f1") // hex colour for UI badges
+
+  leads LeadTag[]
+
+  @@map("tags")
+}
+
+model LeadTag {
+  leadId String
+  tagId  String
+
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  tag    Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+  @@id([leadId, tagId])
+  @@map("lead_tags")
+}
+
+// ============================================================
+// AGENT METRICS  (pre-aggregated daily performance snapshots)
+// ============================================================
+
+/// One row per agent per calendar day. Generated by a nightly cron / n8n workflow.
+/// Powers the Admin analytics dashboard without expensive live aggregations.
+model AgentMetric {
+  id String @id @default(cuid())
+
+  agentId String
+  agent   User   @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// The UTC calendar date this snapshot covers (time part always 00:00:00Z).
+  date DateTime @db.Date
+
+  /// Leads closed (WON) on this day by this agent.
+  leadsClosed Int @default(0)
+
+  /// Leads marked LOST on this day by this agent.
+  leadsLost Int @default(0)
+
+  /// Total new leads assigned to this agent on this day.
+  leadsAssigned Int @default(0)
+
+  /// Revenue from closed leads on this day (minor units).
+  revenueClosedCents BigInt @default(0)
+
+  /// Average seconds from lead first message → first agent reply on this day.
+  avgFirstResponseSecs Int @default(0)
+
+  /// Average seconds across all conversations handled on this day.
+  avgHandleTimeSecs Int @default(0)
+
+  /// Total messages sent by the agent on this day.
+  messagesSent Int @default(0)
+
+  createdAt DateTime @default(now())
+
+  @@unique([agentId, date])
+  @@index([date])
+  @@map("agent_metrics")
+}
+
+// ============================================================
+// AUDIT LOG  (admin-level event log)
+// ============================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+
+  /// The user who performed the action (null if system/webhook triggered).
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  /// e.g. "lead.status_changed", "lead.assigned", "user.created"
+  action     String
+
+  /// The primary entity type affected: "Lead", "User", "Message", etc.
+  entityType String
+
+  /// The primary entity ID affected.
+  entityId   String?
+
+  /// JSON diff or contextual metadata for the action.
+  metadata   Json?
+
+  occurredAt DateTime @default(now())
+
+  @@index([actorId])
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@map("audit_logs")
+}

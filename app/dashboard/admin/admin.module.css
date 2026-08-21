@@ -1,0 +1,199 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Page shell ──────────────────────────────────────────────────────────── */
+.page {
+  min-height: 100vh;
+  background:
+    radial-gradient(ellipse 70% 50% at 10% 0%, rgba(124,58,237,0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 40% at 90% 100%, rgba(212,167,74,0.06) 0%, transparent 60%),
+    #07080f;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #f1f0ff;
+}
+
+/* ── Top navigation bar ──────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  height: 60px;
+  background: rgba(255,255,255,0.03);
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(12px);
+}
+.topbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.logoIcon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #20C997;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 12px rgba(124,58,237,0.4);
+  flex-shrink: 0;
+}
+.logoName  { font-size: 0.95rem; font-weight: 700; letter-spacing: -0.01em; color: #f1f0ff; }
+.logoDot   { color: rgba(255,255,255,0.2); margin: 0 0.15rem; }
+.logoSub   { font-size: 0.72rem; color: #8b8aa8; }
+
+.topbarRight { display: flex; align-items: center; gap: 0.75rem; }
+
+.adminBadge {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.25rem 0.75rem; border-radius: 999px; font-size: 0.7rem;
+  font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  background: rgba(212,167,74,0.12); border: 1px solid rgba(212,167,74,0.3);
+  color: #d4a74a;
+}
+
+.logoutForm button {
+  padding: 0.35rem 0.85rem; border-radius: 50%; font-size: 0.8rem;
+  font-weight: 500; font-family: inherit; cursor: pointer;
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09);
+  color: #8b8aa8; transition: background 0.15s, color 0.15s;
+}
+.logoutForm button:hover { background: rgba(255,255,255,0.09); color: #f1f0ff; }
+
+/* ── Main content ────────────────────────────────────────────────────────── */
+.main {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+}
+
+/* ── Page header ─────────────────────────────────────────────────────────── */
+.heading { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 0.3rem; }
+.subheading { font-size: 0.875rem; color: #8b8aa8; margin-bottom: 2rem; }
+
+/* ── Stats grid ──────────────────────────────────────────────────────────── */
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.75rem;
+}
+@media (min-width: 640px) { .statsGrid { grid-template-columns: repeat(4, 1fr); } }
+
+.statCard {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 14px;
+  padding: 1.25rem 1rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s;
+}
+.statCard:hover { border-color: rgba(255,255,255,0.14); transform: translateY(-1px); }
+.statCard::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.statCard:hover::before { opacity: 1; }
+
+.statIcon {
+  width: 36px; height: 36px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 0.9rem; font-size: 1rem;
+}
+.statValue { font-size: 2rem; font-weight: 700; letter-spacing: -0.03em; line-height: 1; margin-bottom: 0.3rem; }
+.statLabel { font-size: 0.75rem; color: #8b8aa8; font-weight: 500; }
+.statDelta  { font-size: 0.7rem; margin-top: 0.4rem; }
+
+/* Per-card accent colours */
+.accentPurple .statIcon { background: rgba(124,58,237,0.18); }
+.accentPurple .statValue { color: #a78bfa; }
+.accentGold   .statIcon { background: rgba(212,167,74,0.15); }
+.accentGold   .statValue { color: #d4a74a; }
+.accentGreen  .statIcon { background: rgba(74,222,128,0.12); }
+.accentGreen  .statValue { color: #4ade80; }
+.accentBlue   .statIcon { background: rgba(96,165,250,0.12); }
+.accentBlue   .statValue { color: #60a5fa; }
+
+/* ── Section title ───────────────────────────────────────────────────────── */
+.sectionTitle {
+  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: #6b6a88; margin-bottom: 0.75rem;
+}
+
+/* ── Status breakdown ────────────────────────────────────────────────────── */
+.statusPanel {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  padding: 1.25rem;
+  margin-bottom: 1.75rem;
+}
+.statusGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+@media (min-width: 500px) { .statusGrid { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 768px) { .statusGrid { grid-template-columns: repeat(5, 1fr); } }
+
+.statusChip {
+  display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+  padding: 0.85rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid;
+  text-align: center;
+}
+.statusDot   { width: 8px; height: 8px; border-radius: 50%; margin-bottom: 0.1rem; }
+.statusCount { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+.statusName  { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.03em; text-transform: uppercase; }
+
+.sNew  { background: rgba(96,165,250,0.08);  border-color: rgba(96,165,250,0.2);  color: #60a5fa; }
+.sThin { background: rgba(59,130,246,0.08);  border-color: rgba(59,130,246,0.2);  color: #3b82f6; }
+.sIntr { background: rgba(32,201,151,0.08);  border-color: rgba(32,201,151,0.2);  color: #20C997; }
+.sNone { background: rgba(156,163,175,0.08); border-color: rgba(156,163,175,0.2); color: #9ca3af; }
+.sNint { background: rgba(248,113,113,0.08); border-color: rgba(248,113,113,0.2); color: #f87171; }
+.sClos { background: rgba(251,191,36,0.08);  border-color: rgba(251,191,36,0.2);  color: #fbbf24; }
+
+/* ── Recent leads table ──────────────────────────────────────────────────── */
+.tablePanel {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.tableScroll { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+.table thead tr { border-bottom: 1px solid rgba(255,255,255,0.07); }
+.table th {
+  padding: 0.75rem 1rem; text-align: left; font-size: 0.72rem;
+  font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #6b6a88;
+}
+.table td { padding: 0.9rem 1rem; color: #c4c3dc; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.table tr:last-child td { border-bottom: none; }
+.table tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+.leadName { color: #f1f0ff; font-weight: 500; }
+.leadPhone { font-size: 0.78rem; color: #8b8aa8; }
+
+/* Status pill in table */
+.pill {
+  display: inline-block; padding: 0.2rem 0.6rem;
+  border-radius: 999px; font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap;
+}
+.pillNew  { background: rgba(96,165,250,0.12);  color: #60a5fa; }
+.pillThin { background: rgba(59,130,246,0.12);  color: #3b82f6; }
+.pillIntr { background: rgba(32,201,151,0.12);  color: #20C997; }
+.pillNone { background: rgba(156,163,175,0.12); color: #9ca3af; }
+.pillNint { background: rgba(248,113,113,0.12); color: #f87171; }
+.pillClos { background: rgba(251,191,36,0.12);  color: #fbbf24; }
+
+.emptyRow td { text-align: center; color: #4e4d6a; padding: 2.5rem; }

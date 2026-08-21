@@ -101,7 +101,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
 
   function handleSend() {
     const body = text.trim();
-    if (!body || isPending) return;
+    if (!body) return;
 
     const tempId = `pending-${Date.now()}`;
     const optimistic: ChatMessage = {
@@ -121,7 +121,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     }
 
     // 2. Background save — replaces temp with persisted record
-    startTx(async () => {
+    (async () => {
       try {
         const saved: SentMessage = await sendMessage(leadId, body);
         setMessages((prev) =>
@@ -141,7 +141,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
         );
         setErrorId(tempId);
       }
-    });
+    })();
   }
 
   function processUpload(base64: string, mimeType: string, filename: string) {

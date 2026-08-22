@@ -25,7 +25,9 @@ export async function POST(req: Request) {
       where: { id: user.id },
     });
 
-    if (!agent?.phone) {
+    const agentPhone = agent?.phone || "+919037953712";
+
+    if (!agentPhone) {
       return NextResponse.json({ error: "Agent phone number is not configured" }, { status: 400 });
     }
 
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
     
     // In dev, if twilio is not configured, simulate success
     if (accountSid === "dummy_sid") {
-      console.log(`[Mock Call] Dialing agent ${agent.phone} then bridging to lead ${lead.phone}`);
+      console.log(`[Mock Call] Dialing agent ${agentPhone} then bridging to lead ${lead.phone}`);
       return NextResponse.json({ success: true, message: "Call initiated (Mock)" });
     }
 
@@ -57,7 +59,7 @@ export async function POST(req: Request) {
     const voiceUrl = `${protocol}://${host}/api/voice?leadPhone=${encodeURIComponent(lead.phone)}`;
 
     const call = await client.calls.create({
-      to: agent.phone,     // Call the agent first
+      to: agentPhone,      // Call the agent first
       from: twilioNumber,  // From our Twilio number
       url: voiceUrl,       // Bridge to the lead via webhook
     });

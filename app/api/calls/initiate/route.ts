@@ -20,16 +20,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing leadId" }, { status: 400 });
     }
 
-    // 1. Fetch Agent
-    const agent = await prisma.user.findUnique({
-      where: { id: user.id },
-    });
-
-    const agentPhone = agent?.phone || "+919037953712";
-
-    if (!agentPhone) {
-      return NextResponse.json({ error: "Agent phone number is not configured" }, { status: 400 });
-    }
+    // 1. Bypass Agent DB lookup and hardcode the agent phone
+    const agentPhone = "+919037953712";
 
     // 2. Fetch Lead
     const lead = await prisma.lead.findUnique({
@@ -41,15 +33,13 @@ export async function POST(req: Request) {
     }
 
     // 3. Initiate Twilio Call
-    // Ensure these env variables are set in production
-    const accountSid = process.env.TWILIO_ACCOUNT_SID || "dummy_sid";
-    const authToken = process.env.TWILIO_AUTH_TOKEN || "dummy_token";
-    const twilioNumber = process.env.TWILIO_PHONE_NUMBER || "+1234567890";
-    
-    // In dev, if twilio is not configured, simulate success
-    if (accountSid === "dummy_sid") {
-      console.log(`[Mock Call] Dialing agent ${agentPhone} then bridging to lead ${lead.phone}`);
-      return NextResponse.json({ success: true, message: "Call initiated (Mock)" });
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const authToken = process.env.TWILIO_AUTH_TOKEN;
+    const twilioNumber = process.env.TWILIO_PHONE_NUMBER;
+
+    if (!accountSid || !authToken || !twilioNumber) {
+      console.error("[CRITICAL] Missing Twilio Environment Variables");
+      return NextResponse.json({ error: "Twilio configuration is missing on the server" }, { status: 500 });
     }
 
     const client = twilio(accountSid, authToken);

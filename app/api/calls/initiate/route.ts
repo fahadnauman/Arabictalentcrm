@@ -66,6 +66,12 @@ export async function POST(req: Request) {
 
   } catch (error: any) {
     console.error("[CRITICAL] Call Initiation Error:", error);
-    return NextResponse.json({ error: "Failed to initiate call" }, { status: 500 });
+    console.error("Twilio Error Details:", error?.message, error?.code, error?.moreInfo);
+    
+    return NextResponse.json({ 
+      error: error?.message || "Failed to initiate call",
+      code: error?.code,
+      details: error?.moreInfo || error
+    }, { status: 500 });
   }
 }

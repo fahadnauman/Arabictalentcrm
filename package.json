@@ -27,7 +27,7 @@
     "pg": "^8.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "twilio": "^6.0.2"
+    "twilio": "^6.1.0"
   },
   "allowScripts": {
     "@prisma/engines@7.8.0": true,

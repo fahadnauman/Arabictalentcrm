@@ -20,8 +20,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing leadId" }, { status: 400 });
     }
 
-    // 1. Bypass Agent DB lookup and hardcode the agent phone
-    const agentPhone = "+919037953712";
+    // 1. Fetch Agent
+    const agent = await prisma.user.findUnique({
+      where: { id: user.id },
+    });
+
+    const agentPhone = agent?.phone || "+919037953712";
+
+    if (!agentPhone) {
+      return NextResponse.json({ error: "Agent phone number is not configured" }, { status: 400 });
+    }
 
     // 2. Fetch Lead
     const lead = await prisma.lead.findUnique({

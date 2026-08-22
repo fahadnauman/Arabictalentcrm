@@ -52,10 +52,14 @@ export async function POST(req: Request) {
 
     const client = twilio(accountSid, authToken);
 
+    const protocol = req.headers.get("x-forwarded-proto") || "http";
+    const host = req.headers.get("host");
+    const voiceUrl = `${protocol}://${host}/api/voice?leadPhone=${encodeURIComponent(lead.phone)}`;
+
     const call = await client.calls.create({
       to: agent.phone,     // Call the agent first
       from: twilioNumber,  // From our Twilio number
-      twiml: `<Response><Dial>${lead.phone}</Dial></Response>`, // Bridge to the lead
+      url: voiceUrl,       // Bridge to the lead via webhook
     });
 
     return NextResponse.json({ success: true, callSid: call.sid });

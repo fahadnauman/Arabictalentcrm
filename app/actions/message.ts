@@ -95,6 +95,10 @@ export async function sendMessage(
         });
       } catch (err: any) {
         console.error("Failed to send attachment via Twilio:", err.message);
+        
+        // Update DB status to FAILED
+        await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
+        throw new Error(`Twilio Error: ${err.message}`);
       }
     }
   } else {
@@ -110,6 +114,10 @@ export async function sendMessage(
         });
       } catch (err: any) {
         console.error("Failed to send text message via Twilio:", err.message);
+        
+        // Update DB status to FAILED
+        await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
+        throw new Error(`Twilio Error: ${err.message}`);
       }
     }
   }

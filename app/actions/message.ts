@@ -111,11 +111,9 @@ export async function sendMessage(
               delay: 0,
               presence: "composing"
             },
-            mediaMessage: {
-              mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
-              caption: body.trim() || "",
-              media: base64Data
-            }
+            mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
+            caption: body.trim() || "",
+            media: base64Data
           })
         });
 
@@ -137,9 +135,7 @@ export async function sendMessage(
               delay: 0,
               presence: "composing"
             },
-            textMessage: {
-              text: body.trim()
-            }
+            text: body.trim()
           })
         });
 

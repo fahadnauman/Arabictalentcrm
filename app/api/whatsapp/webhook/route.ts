@@ -53,14 +53,33 @@ export async function POST(req: Request) {
 
     if (!lead) {
       // If the lead doesn't exist, create a new one to log the message against
+      const { getNextAgentInRotation, extractCampaignLanguage } = await import("@/lib/roundRobin");
+      
+      const requiredLang = extractCampaignLanguage("", body, profileName);
+      const assignment = await getNextAgentInRotation(requiredLang);
+      const assignedAgentId = assignment?.agentId || null;
+
       lead = await prisma.lead.create({
         data: {
           name: profileName,
           phone,
           status: "NEW_LEAD",
           source: "whatsapp",
+          assignedAgentId,
+          firstAssignedAt: assignedAgentId ? new Date() : null,
         }
       });
+
+      // Log assignment
+      if (assignment) {
+        await prisma.leadAssignment.create({
+          data: {
+            leadId:       lead.id,
+            assignedToId: assignment.agentId,
+            assignedBy:   "round_robin_evolution",
+          },
+        });
+      }
     }
 
     // 2. Log the incoming message to the lead's timeline

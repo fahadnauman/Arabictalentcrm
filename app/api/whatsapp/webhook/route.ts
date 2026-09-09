@@ -3,25 +3,48 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   try {
-    const text = await req.text();
-    const params = new URLSearchParams(text);
+    const payload = await req.json();
 
-    const fromRaw = params.get("From");
-    const body = params.get("Body");
-    const messageSid = params.get("MessageSid") || `msg_${Date.now()}`;
-    const profileName = params.get("ProfileName") || "Unknown WhatsApp User";
-
-    // Media handling
-    const numMedia = parseInt(params.get("NumMedia") || "0", 10);
-    const mediaUrl = numMedia > 0 ? params.get("MediaUrl0") : null;
-    const mediaType = numMedia > 0 ? params.get("MediaContentType0") : null;
-
-    if (!fromRaw) {
-      return NextResponse.json({ error: "Missing 'From' parameter in payload" }, { status: 400 });
+    // Evolution API sends different events. We only care about messages.upsert
+    if (payload.event !== "messages.upsert") {
+      return NextResponse.json({ success: true });
     }
 
-    // Clean phone number (strip 'whatsapp:' prefix)
-    const phone = fromRaw.replace("whatsapp:", "");
+    const data = payload.data;
+    if (!data || !data.key || data.key.fromMe) {
+      // Ignore our own outbound messages or malformed payloads
+      return NextResponse.json({ success: true });
+    }
+
+    const remoteJid = data.key.remoteJid;
+    if (!remoteJid || remoteJid.includes("@g.us")) {
+      // Ignore group messages for now
+      return NextResponse.json({ success: true });
+    }
+
+    // Clean phone number
+    const phone = remoteJid.replace("@s.whatsapp.net", "").replace("+", "");
+    const messageSid = data.key.id;
+    const profileName = data.pushName || "Unknown WhatsApp User";
+
+    // Extract text body
+    let body = "";
+    if (data.message?.conversation) {
+      body = data.message.conversation;
+    } else if (data.message?.extendedTextMessage?.text) {
+      body = data.message.extendedTextMessage.text;
+    }
+
+    // Media handling (Evolution API sends base64 if enabled, or just the mediaType)
+    // We'll leave mediaUrl null for now since Evolution media downloads require extra API calls
+    // unless base64 is explicitly included in the webhook.
+    const messageType = data.messageType;
+    let mediaUrl = null;
+    let mediaType = null;
+    if (messageType === "imageMessage" || messageType === "videoMessage" || messageType === "audioMessage" || messageType === "documentMessage") {
+      mediaType = messageType;
+      if (!body) body = "Media Attachment";
+    }
 
     // 1. Match the clean phone number against the Prisma lead table
     let lead = await prisma.lead.findUnique({
@@ -43,11 +66,11 @@ export async function POST(req: Request) {
     // 2. Log the incoming message to the lead's timeline
     await prisma.message.upsert({
       where: { twilioSid: messageSid },
-      update: {}, // Prevent duplicate processing if Twilio retries the webhook
+      update: {}, // Prevent duplicate processing
       create: {
         twilioSid: messageSid,
         leadId: lead.id,
-        body: body || (mediaUrl ? "Media Attachment" : ""),
+        body,
         direction: "INBOUND",
         status: "RECEIVED",
         mediaUrl,
@@ -55,14 +78,13 @@ export async function POST(req: Request) {
       }
     });
 
-    // 3. Return 200 OK with empty TwiML response as expected by Twilio
-    return new NextResponse("<Response></Response>", {
-      status: 200,
-      headers: { "Content-Type": "text/xml" }
-    });
+    // 3. Return 200 OK JSON response
+    return NextResponse.json({ success: true });
 
   } catch (error: any) {
-    console.error("[CRITICAL] WhatsApp Webhook Error:", error);
+    console.error("[CRITICAL] Evolution Webhook Error:", error);
+    // Evolution API expects 200 OK even if we fail, to avoid retrying endlessly, 
+    // but 500 is good for debugging.
     return NextResponse.json(
       { error: "Internal Server Error", details: error.message },
       { status: 500 }

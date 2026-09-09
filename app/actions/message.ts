@@ -3,7 +3,10 @@
 import { prisma } from "@/lib/prisma";
 import { cookies } from "next/headers";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
-import { twilioClient, twilioPhone } from "@/lib/twilio";
+
+const EVO_URL = process.env.EVO_API_URL || "http://143.198.182.24:8080";
+const EVO_KEY = process.env.EVO_API_KEY || "arabictalent-api-key-2024";
+const EVO_INSTANCE = process.env.EVO_INSTANCE || "arabic-talent-instance";
 
 export interface SentMessage {
   id:        string;
@@ -15,7 +18,7 @@ export interface SentMessage {
   mediaType?: string | null;
 }
 
-/** Saves an outbound message to the database and sends it via Twilio. */
+/** Saves an outbound message to the database and sends it via Evolution API. */
 export async function sendMessage(
   leadId: string,
   body:   string,
@@ -82,45 +85,76 @@ export async function sendMessage(
       }
     });
 
-    // Attempt to send the media URL via Twilio as well
-    if (twilioClient) {
-      const toPhone = lead.phone.startsWith("whatsapp:") ? lead.phone : `whatsapp:${lead.phone}`;
-      const fromPhone = twilioPhone.startsWith("whatsapp:") ? twilioPhone : `whatsapp:${twilioPhone}`;
-      try {
-        await twilioClient.messages.create({
-          body: body.trim() || "Sent an attachment",
-          from: fromPhone,
-          to: toPhone,
-          mediaUrl: [mediaUrl]
+    // Clean phone for WhatsApp integration
+    const toPhone = lead.phone.replace("whatsapp:", "").replace("+", "");
+
+    try {
+      if (mediaBase64) {
+        // Send Media
+        const parts = mediaBase64.split(",");
+        const base64Data = parts.length > 1 ? parts[1] : parts[0];
+        // Guess mimetype if not provided
+        let mType = mediaType || "application/octet-stream";
+        if (parts.length > 1 && parts[0].includes("data:")) {
+          mType = parts[0].split(";")[0].split(":")[1];
+        }
+
+        const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": EVO_KEY
+          },
+          body: JSON.stringify({
+            number: toPhone,
+            options: {
+              delay: 0,
+              presence: "composing"
+            },
+            mediaMessage: {
+              mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
+              caption: body.trim() || "",
+              media: base64Data
+            }
+          })
         });
-      } catch (err: any) {
-        console.error("Failed to send attachment via Twilio:", err.message);
-        
-        // Update DB status to FAILED
-        await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
-        throw new Error(`Twilio Error: ${err.message}`);
-      }
-    }
-  } else {
-    // Standard text message via Twilio
-    if (twilioClient) {
-      const toPhone = lead.phone.startsWith("whatsapp:") ? lead.phone : `whatsapp:${lead.phone}`;
-      const fromPhone = twilioPhone.startsWith("whatsapp:") ? twilioPhone : `whatsapp:${twilioPhone}`;
-      try {
-        await twilioClient.messages.create({
-          body: body.trim(),
-          from: fromPhone,
-          to: toPhone
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+        }
+      } else {
+        // Send Text
+        const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": EVO_KEY
+          },
+          body: JSON.stringify({
+            number: toPhone,
+            options: {
+              delay: 0,
+              presence: "composing"
+            },
+            textMessage: {
+              text: body.trim()
+            }
+          })
         });
-      } catch (err: any) {
-        console.error("Failed to send text message via Twilio:", err.message);
-        
-        // Update DB status to FAILED
-        await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
-        throw new Error(`Twilio Error: ${err.message}`);
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+        }
       }
+    } catch (err: any) {
+      console.error("Failed to send message via Evolution API:", err.message);
+      
+      // Update DB status to FAILED
+      await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
+      throw new Error(`Evolution Error: ${err.message}`);
     }
-  }
 
   return {
     id:         msg.id,

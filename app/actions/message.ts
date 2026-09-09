@@ -85,8 +85,8 @@ export async function sendMessage(
       }
     });
 
-    // Clean phone for WhatsApp integration
-    const toPhone = lead.phone.replace("whatsapp:", "").replace("+", "");
+    // Clean phone for WhatsApp integration (strip everything except digits)
+    const toPhone = lead.phone.replace(/\D/g, "");
 
     try {
       if (mediaBase64) {

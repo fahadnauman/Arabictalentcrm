@@ -100,12 +100,13 @@ export async function POST(req: Request) {
     // 3. Return 200 OK JSON response
     return NextResponse.json({ success: true });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[CRITICAL] Evolution Webhook Error:", error);
     // Evolution API expects 200 OK even if we fail, to avoid retrying endlessly, 
     // but 500 is good for debugging.
     return NextResponse.json(
-      { error: "Internal Server Error", details: error.message },
+      { error: "Internal Server Error", details: errorMessage },
       { status: 500 }
     );
   }

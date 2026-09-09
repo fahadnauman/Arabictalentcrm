@@ -84,73 +84,75 @@ export async function sendMessage(
         id: true, body: true, direction: true, sentAt: true, sentBy: { select: { name: true } }, mediaUrl: true, mediaType: true
       }
     });
+  } // Added missing brace here
 
-    // Clean phone for WhatsApp integration (strip everything except digits)
-    const toPhone = lead.phone.replace(/\D/g, "");
+  // Clean phone for WhatsApp integration (strip everything except digits)
+  const toPhone = lead.phone.replace(/\D/g, "");
 
-    try {
-      if (mediaBase64) {
-        // Send Media
-        const parts = mediaBase64.split(",");
-        const base64Data = parts.length > 1 ? parts[1] : parts[0];
-        // Guess mimetype if not provided
-        let mType = mediaType || "application/octet-stream";
-        if (parts.length > 1 && parts[0].includes("data:")) {
-          mType = parts[0].split(";")[0].split(":")[1];
-        }
-
-        const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": EVO_KEY
-          },
-          body: JSON.stringify({
-            number: toPhone,
-            options: {
-              delay: 0,
-              presence: "composing"
-            },
-            mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
-            caption: body.trim() || "",
-            media: base64Data
-          })
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Evolution API Error: ${res.status} ${errText}`);
-        }
-      } else {
-        // Send Text
-        const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "apikey": EVO_KEY
-          },
-          body: JSON.stringify({
-            number: toPhone,
-            options: {
-              delay: 0,
-              presence: "composing"
-            },
-            text: body.trim()
-          })
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Evolution API Error: ${res.status} ${errText}`);
-        }
+  try {
+    if (mediaBase64) {
+      // Send Media
+      const parts = mediaBase64.split(",");
+      const base64Data = parts.length > 1 ? parts[1] : parts[0];
+      // Guess mimetype if not provided
+      let mType = mediaType || "application/octet-stream";
+      if (parts.length > 1 && parts[0].includes("data:")) {
+        mType = parts[0].split(";")[0].split(":")[1];
       }
-    } catch (err: any) {
-      console.error("Failed to send message via Evolution API:", err.message);
-      
-      // Update DB status to FAILED
-      await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
-      throw new Error(`Evolution Error: ${err.message}`);
+
+      const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": EVO_KEY
+        },
+        body: JSON.stringify({
+          number: toPhone,
+          options: {
+            delay: 0,
+            presence: "composing"
+          },
+          mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
+          caption: body.trim() || "",
+          media: base64Data
+        })
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+      }
+    } else {
+      // Send Text
+      const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": EVO_KEY
+        },
+        body: JSON.stringify({
+          number: toPhone,
+          options: {
+            delay: 0,
+            presence: "composing"
+          },
+          text: body.trim()
+        })
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+      }
     }
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error("Failed to send message via Evolution API:", errorMessage);
+    
+    // Update DB status to FAILED
+    await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
+    throw new Error(`Evolution Error: ${errorMessage}`);
+  }
 
   return {
     id:         msg.id,

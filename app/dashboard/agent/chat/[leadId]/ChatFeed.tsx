@@ -442,6 +442,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                           ) : isAud ? (
                             <div style={{ padding: "0.15rem 0", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                               <audio
+                                key={mediaSrc}
                                 controls
                                 preload="metadata"
                                 src={mediaSrc}

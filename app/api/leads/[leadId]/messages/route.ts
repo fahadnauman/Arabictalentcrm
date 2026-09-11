@@ -72,7 +72,7 @@ export async function GET(
       direction: m.direction,
       sentAt: m.sentAt.toISOString(),
       senderName: m.sentBy?.name ?? null,
-      mediaUrl: m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null),
+      mediaUrl: m.mediaUrl?.includes("localhost:3000") ? `/api/media/${m.id}` : (m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null)),
       mediaType: m.mediaType,
       isStatusReply: m.isStatusReply,
     };

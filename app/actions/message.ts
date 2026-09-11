@@ -72,10 +72,9 @@ export async function sendMessage(
     },
   });
 
-  // If there's media, we construct the local proxy URL using the generated message ID
+  // If there's media, construct relative proxy URL
   if (mediaBase64) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const mediaUrl = `${appUrl}/api/media/${msg.id}`;
+    const mediaUrl = `/api/media/${msg.id}`;
     
     msg = await prisma.message.update({
       where: { id: msg.id },
@@ -84,7 +83,7 @@ export async function sendMessage(
         id: true, body: true, direction: true, sentAt: true, sentBy: { select: { name: true } }, mediaUrl: true, mediaType: true
       }
     });
-  } // Added missing brace here
+  }
 
   // Clean phone for WhatsApp integration (strip everything except digits)
   const toPhone = lead.phone.replace(/\D/g, "");
@@ -124,29 +123,66 @@ export async function sendMessage(
         ? (body.trim().includes(".") ? body.trim() : `voice_note.${ext}`)
         : `attachment_${Date.now()}.${ext}`;
 
-      const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "apikey": EVO_KEY
-        },
-        body: JSON.stringify({
-          number: toPhone,
-          options: {
-            delay: 0,
-            presence: computedMediatype === "audio" ? "recording" : "composing"
-          },
-          mediatype: computedMediatype,
-          mimetype: mType,
-          caption: isVoiceNote ? "" : (body.trim() || ""),
-          media: base64Data,
-          fileName: fileName
-        })
-      });
+      if (isAudio) {
+        // WhatsApp Audio / Voice Note (PTT)
+        // Clean and buffer the audio payload into a pure Base64 string
+        const cleanBase64 = base64Data.trim().replace(/[\r\n\s]/g, "");
+        const audioBuffer = Buffer.from(cleanBase64, "base64");
+        const formattedBase64 = audioBuffer.toString("base64");
 
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+        // Send via Evolution API's sendWhatsAppAudio endpoint with encoding: true
+        // This triggers Evolution API's ffmpeg to transcode into WhatsApp's native PTT Opus format (audio/ogg; codecs=opus)
+        const res = await fetch(`${EVO_URL}/message/sendWhatsAppAudio/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": EVO_KEY
+          },
+          body: JSON.stringify({
+            number: toPhone,
+            audio: formattedBase64,
+            delay: 1200,
+            encoding: true
+          })
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Evolution API sendWhatsAppAudio Error: ${res.status} ${errText}`);
+        }
+
+        const evoData = await res.json().catch(() => null);
+        if (evoData?.key?.id) {
+          await prisma.message.update({
+            where: { id: msg.id },
+            data: { twilioSid: evoData.key.id }
+          }).catch(() => {});
+        }
+      } else {
+        const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": EVO_KEY
+          },
+          body: JSON.stringify({
+            number: toPhone,
+            options: {
+              delay: 0,
+              presence: "composing"
+            },
+            mediatype: computedMediatype,
+            mimetype: mType,
+            caption: body.trim() || "",
+            media: base64Data,
+            fileName: fileName
+          })
+        });
+
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`Evolution API sendMedia Error: ${res.status} ${errText}`);
+        }
       }
     } else {
       // Send Text

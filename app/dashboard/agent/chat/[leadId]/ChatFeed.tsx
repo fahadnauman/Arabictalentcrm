@@ -217,9 +217,12 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     })();
   }
 
-  function processUpload(base64: string, mimeType: string, filename: string) {
+  async function processUpload(file: File | Blob, filename: string, mimeType: string) {
     setIsUploading(true);
     const tempId = `pending-media-${Date.now()}`;
+    // Fast local object URL for instant UI preview
+    const localPreviewUrl = URL.createObjectURL(file);
+
     const optimistic: ChatMessage = {
       id:         tempId,
       body:       filename,
@@ -227,73 +230,69 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
       sentAt:     new Date().toISOString(),
       senderName: agentName,
       pending:    true,
-      mediaUrl:   base64, // Local preview
+      mediaUrl:   localPreviewUrl,
       mediaType:  mimeType,
     };
 
     setMessages((prev) => [...prev, optimistic]);
 
-    startTx(async () => {
-      try {
-        const res = await sendMessage(leadId, filename, base64, mimeType);
-        if (!res.success) {
-          const httpStatus = res.status || 500;
-          const rawResponse = res.rawResponse || res.error || "Unknown server response";
-          console.log("Upload Error - exact HTTP status code:", httpStatus);
-          console.log("Upload Error - raw error response:", rawResponse);
-          console.error("[Chat Input Upload Error]", {
-            status: httpStatus,
-            rawResponse,
-            error: res.error,
-          });
-          setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${res.error || rawResponse}`);
-          setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
-          setErrorId(tempId);
-          return;
-        }
+    try {
+      const formData = new FormData();
+      formData.append("file", file, filename);
+      formData.append("leadId", leadId);
+      formData.append("caption", filename);
 
-        const saved = res.data;
-        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...saved, pending: false } : m));
-        setErrorId(null);
-        setErrorMessage(null);
-      } catch (err: any) {
-        const httpStatus = err?.status || err?.statusCode || err?.response?.status || (typeof err?.digest === "string" ? `Server Action Error (${err.digest})` : "N/A");
-        const rawResponse = err?.response?.data || (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+      const res = await fetch("/api/messages/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok || !data?.success) {
+        const httpStatus = res.status || 500;
+        const rawResponse = data?.rawResponse || data?.error || (typeof data === "string" ? data : JSON.stringify(data));
         console.log("Upload Error - exact HTTP status code:", httpStatus);
         console.log("Upload Error - raw error response:", rawResponse);
-        console.error("[Chat Input Upload Exception]", {
+        console.error("[Chat Input Upload Error]", {
           status: httpStatus,
           rawResponse,
-          error: err,
-          digest: err?.digest,
-          message: err?.message,
+          error: data?.error,
         });
-        setErrorMessage(`⚠ Upload failed (Status: ${httpStatus}): ${err?.message || "Check console"}`);
+        setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${data?.error || rawResponse || "Check console for details"}`);
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
         setErrorId(tempId);
-      } finally {
-        setIsUploading(false);
+        return;
       }
-    });
+
+      const saved: ChatMessage = data.message;
+      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...saved, pending: false } : m));
+      setErrorId(null);
+      setErrorMessage(null);
+    } catch (err: any) {
+      const httpStatus = err?.status || err?.statusCode || 500;
+      const rawResponse = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+      console.log("Upload Error - exact HTTP status code:", httpStatus);
+      console.log("Upload Error - raw error response:", rawResponse);
+      console.error("[Chat Input Upload Exception]", {
+        status: httpStatus,
+        rawResponse,
+        error: err,
+        message: err?.message,
+      });
+      setErrorMessage(`⚠ Upload failed (Status: ${httpStatus}): ${err?.message || "Check console"}`);
+      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
+      setErrorId(tempId);
+    } finally {
+      setIsUploading(false);
+    }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64 = event.target?.result as string;
-      processUpload(base64, file.type, file.name);
-    };
-    reader.onerror = (readErr) => {
-      console.log("File reading error:", readErr);
-      console.error("[FileReader Error]", readErr);
-      setIsUploading(false);
-      setErrorMessage("⚠ Failed to read file from disk.");
-      setErrorId(`err-${Date.now()}`);
-    };
-    reader.readAsDataURL(file);
+    processUpload(file, file.name, file.type || "application/octet-stream");
     e.target.value = ""; // Reset input
   }
 
@@ -333,21 +332,16 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
           // Native uncorrupted blob using the recorder's actual MIME type
           const actualMime = recorder.mimeType || preferredMime || "audio/webm";
           const blob = new Blob(audioChunksRef.current, { type: actualMime });
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const base64 = event.target?.result as string;
 
-            // Determine native extension
-            let ext = "webm";
-            if (actualMime.includes("ogg")) ext = "ogg";
-            else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
-            else if (actualMime.includes("wav")) ext = "wav";
-            else if (actualMime.includes("webm")) ext = "webm";
+          // Determine native extension
+          let ext = "webm";
+          if (actualMime.includes("ogg")) ext = "ogg";
+          else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
+          else if (actualMime.includes("wav")) ext = "wav";
+          else if (actualMime.includes("webm")) ext = "webm";
 
-            const filename = `voice_note.${ext}`;
-            processUpload(base64, actualMime, filename);
-          };
-          reader.readAsDataURL(blob);
+          const filename = `voice_note.${ext}`;
+          processUpload(blob, filename, actualMime);
           stream.getTracks().forEach((track) => track.stop());
         };
 

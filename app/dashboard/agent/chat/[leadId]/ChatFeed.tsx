@@ -292,7 +292,12 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    processUpload(file, file.name, file.type || "application/octet-stream");
+    let mimeType = file.type || "application/octet-stream";
+    if (file.name.toLowerCase().endsWith(".mp4")) {
+      mimeType = "video/mp4";
+    }
+
+    processUpload(file, file.name, mimeType);
     e.target.value = ""; // Reset input
   }
 
@@ -438,21 +443,23 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                     mType === "imagemessage" ||
                     mType.includes("image");
 
-                  const isAud =
-                    mType.startsWith("audio/") ||
-                    mType === "audiomessage" ||
-                    mType.includes("audio") ||
-                    mType.includes("ogg") ||
-                    mType.includes("opus") ||
-                    mType.includes("webm") ||
-                    mType.includes("wav") ||
-                    mType.includes("m4a") ||
-                    mType.includes("voice");
-
                   const isVid =
                     mType.startsWith("video/") ||
                     mType === "videomessage" ||
                     mType.includes("video");
+
+                  const isAud =
+                    !isVid && (
+                      mType.startsWith("audio/") ||
+                      mType === "audiomessage" ||
+                      mType.includes("audio") ||
+                      mType.includes("ogg") ||
+                      mType.includes("opus") ||
+                      mType.includes("webm") ||
+                      mType.includes("wav") ||
+                      mType.includes("m4a") ||
+                      mType.includes("voice")
+                    );
 
                   const isDoc =
                     mType.startsWith("application/") ||
@@ -460,7 +467,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                     mType.includes("pdf") ||
                     mType.includes("document");
 
-                  const hasMedia = isImg || isAud || isVid || isDoc || !!msg.mediaUrl;
+                  const hasMedia = isImg || isVid || isAud || isDoc || !!msg.mediaUrl;
                   const mediaSrc = msg.mediaUrl || (hasMedia ? `/api/media/${msg.id}` : null);
 
                   const isFallbackText = 
@@ -493,6 +500,19 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                                 }}
                               />
                             </a>
+                          ) : isVid ? (
+                            <video
+                              controls
+                              preload="metadata"
+                              src={mediaSrc}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "320px",
+                                borderRadius: "10px",
+                                display: "block",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                              }}
+                            />
                           ) : isAud ? (
                             <div style={{ padding: "0.15rem 0", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                               <audio
@@ -509,19 +529,6 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                                 }}
                               />
                             </div>
-                          ) : isVid ? (
-                            <video
-                              controls
-                              preload="metadata"
-                              src={mediaSrc}
-                              style={{
-                                maxWidth: "100%",
-                                maxHeight: "320px",
-                                borderRadius: "10px",
-                                display: "block",
-                                border: "1px solid rgba(255,255,255,0.12)",
-                              }}
-                            />
                           ) : (
                             <a
                               href={mediaSrc}

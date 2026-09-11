@@ -47,42 +47,91 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Access denied: Not your lead" }, { status: 403 });
     }
 
-    // Read binary data into buffer
+    // 1. Read binary data into buffer safely and ensure ArrayBuffer to Base64 is fully intact
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
     const base64Data = buffer.toString("base64");
-    const mimeType = file.type || "application/octet-stream";
+
+    if (!buffer || buffer.length === 0) {
+      return NextResponse.json({ error: "Empty file uploaded" }, { status: 400 });
+    }
+
+    // 2. Extract and strictly determine the correct MIME type from FormData file object
+    let rawMime = (file.type || "").split(";")[0].trim().toLowerCase();
     const originalName = file.name || "attachment";
+    const lowerName = originalName.toLowerCase();
 
-    const isImage = mimeType.includes("image");
-    const isVideo = mimeType.includes("video");
+    // If file.type was omitted or generic octet-stream, infer from extension
+    if (!rawMime || rawMime === "application/octet-stream") {
+      if (lowerName.endsWith(".mp4") || lowerName.endsWith(".m4v")) rawMime = "video/mp4";
+      else if (lowerName.endsWith(".mov")) rawMime = "video/quicktime";
+      else if (lowerName.endsWith(".webm")) rawMime = "video/webm";
+      else if (lowerName.endsWith(".3gp")) rawMime = "video/3gpp";
+      else if (lowerName.endsWith(".avi")) rawMime = "video/x-msvideo";
+      else if (lowerName.endsWith(".mkv")) rawMime = "video/x-matroska";
+      else if (lowerName.endsWith(".png")) rawMime = "image/png";
+      else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) rawMime = "image/jpeg";
+      else if (lowerName.endsWith(".webp")) rawMime = "image/webp";
+      else if (lowerName.endsWith(".pdf")) rawMime = "application/pdf";
+      else if (lowerName.endsWith(".ogg") || lowerName.endsWith(".opus")) rawMime = "audio/ogg";
+      else if (lowerName.endsWith(".mp3")) rawMime = "audio/mpeg";
+      else if (lowerName.endsWith(".wav")) rawMime = "audio/wav";
+      else if (lowerName.endsWith(".m4a")) rawMime = "audio/mp4";
+    }
+
+    // 3. Classify media category strictly (Video takes precedence over generic audio/webm)
+    const isVideo =
+      rawMime.startsWith("video/") ||
+      lowerName.endsWith(".mp4") ||
+      lowerName.endsWith(".m4v") ||
+      lowerName.endsWith(".mov") ||
+      lowerName.endsWith(".webm") ||
+      lowerName.endsWith(".3gp") ||
+      lowerName.endsWith(".mkv");
+
     const isAudio =
-      mimeType.includes("audio") ||
-      mimeType.includes("ogg") ||
-      mimeType.includes("opus") ||
-      mimeType.includes("webm");
-    const computedMediatype = isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "document";
+      !isVideo &&
+      (rawMime.startsWith("audio/") ||
+       rawMime === "audio/ogg" ||
+       rawMime === "audio/webm" ||
+       rawMime.includes("opus") ||
+       lowerName.endsWith(".ogg") ||
+       lowerName.endsWith(".mp3") ||
+       lowerName.endsWith(".wav") ||
+       lowerName.endsWith(".m4a") ||
+       lowerName.startsWith("voice_note."));
 
-    // Derive safe extension
-    let ext = "bin";
-    if (mimeType === "application/pdf") ext = "pdf";
-    else if (isImage) ext = mimeType.split("/")[1]?.split(";")[0] || "png";
-    else if (isVideo) ext = mimeType.split("/")[1]?.split(";")[0] || "mp4";
-    else if (isAudio) {
-      if (mimeType.includes("webm")) ext = "webm";
-      else if (mimeType.includes("mp4") || mimeType.includes("m4a")) ext = "m4a";
-      else if (mimeType.includes("ogg") || mimeType.includes("opus")) ext = "ogg";
-      else if (mimeType.includes("wav")) ext = "wav";
-      else ext = mimeType.split("/")[1]?.split(";")[0] || "mp3";
-    } else if (mimeType.includes("spreadsheet")) ext = "xlsx";
-    else if (mimeType.includes("word")) ext = "docx";
+    const isImage = !isVideo && !isAudio && rawMime.startsWith("image/");
 
-    const isVoiceNote = isAudio && (originalName === "Voice Note" || originalName.startsWith("voice_note."));
-    const fileName = isVoiceNote
-      ? (originalName.includes(".") ? originalName : `voice_note.${ext}`)
-      : (originalName || `attachment_${Date.now()}.${ext}`);
+    // 4. For WhatsApp video compatibility, strictly normalize video mimetype to "video/mp4"
+    // WhatsApp/Baileys requires strict "video/mp4" to avoid "something is wrong with the video file"
+    const targetMime = isVideo
+      ? "video/mp4"
+      : isAudio
+      ? (rawMime || "audio/ogg")
+      : (rawMime || "application/octet-stream");
 
-    // Persist to DB
+    const computedMediatype = isVideo ? "video" : isImage ? "image" : isAudio ? "audio" : "document";
+
+    // 5. Ensure fileName strictly has .mp4 for video so Evolution API's lookup sets video/mp4
+    let fileName: string;
+    if (isVideo) {
+      const base = originalName.replace(/\.[^/.]+$/, "");
+      fileName = `${base || "video"}.mp4`;
+    } else if (isAudio) {
+      let ext = "ogg";
+      if (rawMime.includes("webm")) ext = "webm";
+      else if (rawMime.includes("mp4") || rawMime.includes("m4a")) ext = "m4a";
+      else if (rawMime.includes("wav")) ext = "wav";
+      else if (rawMime.includes("mp3") || rawMime.includes("mpeg")) ext = "mp3";
+
+      const isVoice = originalName === "Voice Note" || originalName.startsWith("voice_note.");
+      fileName = isVoice ? `voice_note.${ext}` : (originalName.includes(".") ? originalName : `${originalName}.${ext}`);
+    } else {
+      fileName = originalName;
+    }
+
+    // Persist to DB with verified targetMime
     let msg = await prisma.message.create({
       data: {
         leadId,
@@ -90,7 +139,7 @@ export async function POST(req: Request) {
         direction: "OUTBOUND",
         status: "SENT",
         sentById: user.id,
-        mediaType: mimeType,
+        mediaType: targetMime,
         rawPayload: { type: "attachment", base64: base64Data },
       },
       select: {
@@ -171,7 +220,7 @@ export async function POST(req: Request) {
               presence: "composing",
             },
             mediatype: computedMediatype,
-            mimetype: mimeType,
+            mimetype: targetMime,
             caption: caption.trim() || "",
             media: base64Data,
             fileName: fileName,

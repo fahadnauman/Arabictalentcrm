@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: ["localhost:3000", "0.0.0.0:3000", "brown-parents-drum.loca.lt"],
   compress: true,
   poweredByHeader: false,
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "5mb",
+    },
+  },
   async headers() {
     return [
       {

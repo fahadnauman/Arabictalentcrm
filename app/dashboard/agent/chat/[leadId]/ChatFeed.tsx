@@ -598,7 +598,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
           ref={fileInputRef} 
           style={{ display: "none" }} 
           onChange={handleFileChange}
-          accept="image/*,audio/*,application/pdf"
+          accept="image/*,video/*,.mp4,audio/*,application/pdf"
         />
         <button
           onClick={() => fileInputRef.current?.click()}

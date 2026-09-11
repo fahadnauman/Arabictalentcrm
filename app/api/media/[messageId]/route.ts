@@ -18,12 +18,18 @@ function detectMimeType(buffer: Buffer, fallbackMime?: string | null): string {
 
     // 2. WebM / Matroska: 0x1A 0x45 0xDF 0xA3 (Chrome / Edge recording)
     if (buffer[0] === 0x1A && buffer[1] === 0x45 && buffer[2] === 0xDF && buffer[3] === 0xA3) {
+      if (fallbackMime && (fallbackMime.includes("video") || fallbackMime.includes("videomessage"))) {
+        return "video/webm";
+      }
       return "audio/webm; codecs=opus";
     }
 
-    // 3. MP4 / M4A: 'ftyp' at byte offset 4 (Safari recording / iOS)
+    // 3. MP4 / M4A: 'ftyp' at byte offset 4
     if (buffer.length >= 8 && buffer.toString("ascii", 4, 8) === "ftyp") {
-      return "audio/mp4";
+      if (fallbackMime && (fallbackMime.includes("audio") || fallbackMime.includes("m4a"))) {
+        return "audio/mp4";
+      }
+      return "video/mp4";
     }
 
     // 4. MP3: ID3 header or MPEG sync frame
@@ -57,6 +63,7 @@ function detectMimeType(buffer: Buffer, fallbackMime?: string | null): string {
   // Fallback to normalized database/metadata MIME
   if (fallbackMime) {
     const lower = fallbackMime.toLowerCase();
+    if (lower.includes("video") || lower === "videomessage") return "video/mp4";
     if (lower.includes("webm")) return "audio/webm; codecs=opus";
     if (lower.includes("ogg") || lower.includes("opus") || lower === "audiomessage") return "audio/ogg; codecs=opus";
     if (lower.includes("mp4") || lower.includes("m4a")) return "audio/mp4";

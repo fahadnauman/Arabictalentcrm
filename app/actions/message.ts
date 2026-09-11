@@ -6,7 +6,7 @@ import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 
 const EVO_URL = process.env.EVO_API_URL || "http://143.198.182.24:8080";
 const EVO_KEY = process.env.EVO_API_KEY || "arabictalent-api-key-2024";
-const EVO_INSTANCE = process.env.EVO_INSTANCE || "arabic-talent-instance";
+const EVO_INSTANCE = process.env.EVO_INSTANCE || "arabic-talent-prod";
 
 export interface SentMessage {
   id:        string;
@@ -94,11 +94,35 @@ export async function sendMessage(
       // Send Media
       const parts = mediaBase64.split(",");
       const base64Data = parts.length > 1 ? parts[1] : parts[0];
-      // Guess mimetype if not provided
       let mType = mediaType || "application/octet-stream";
       if (parts.length > 1 && parts[0].includes("data:")) {
         mType = parts[0].split(";")[0].split(":")[1];
       }
+
+      const isImage = mType.includes("image");
+      const isVideo = mType.includes("video");
+      const isAudio = mType.includes("audio") || mType.includes("ogg") || mType.includes("opus") || mType.includes("webm");
+      const computedMediatype = isImage ? "image" : isVideo ? "video" : isAudio ? "audio" : "document";
+      
+      // Derive a safe file extension matching native MIME
+      let ext = "bin";
+      if (mType === "application/pdf") ext = "pdf";
+      else if (isImage) ext = mType.split("/")[1]?.split(";")[0] || "png";
+      else if (isVideo) ext = mType.split("/")[1]?.split(";")[0] || "mp4";
+      else if (isAudio) {
+        if (mType.includes("webm")) ext = "webm";
+        else if (mType.includes("mp4") || mType.includes("m4a")) ext = "m4a";
+        else if (mType.includes("ogg") || mType.includes("opus")) ext = "ogg";
+        else if (mType.includes("wav")) ext = "wav";
+        else ext = mType.split("/")[1]?.split(";")[0] || "mp3";
+      }
+      else if (mType.includes("spreadsheet")) ext = "xlsx";
+      else if (mType.includes("word")) ext = "docx";
+
+      const isVoiceNote = isAudio && (body.trim() === "Voice Note" || body.trim().startsWith("voice_note."));
+      const fileName = isVoiceNote
+        ? (body.trim().includes(".") ? body.trim() : `voice_note.${ext}`)
+        : `attachment_${Date.now()}.${ext}`;
 
       const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
         method: "POST",
@@ -110,11 +134,13 @@ export async function sendMessage(
           number: toPhone,
           options: {
             delay: 0,
-            presence: "composing"
+            presence: computedMediatype === "audio" ? "recording" : "composing"
           },
-          mediatype: mType.includes("image") ? "image" : mType.includes("video") ? "video" : mType.includes("audio") ? "audio" : "document",
-          caption: body.trim() || "",
-          media: base64Data
+          mediatype: computedMediatype,
+          mimetype: mType,
+          caption: isVoiceNote ? "" : (body.trim() || ""),
+          media: base64Data,
+          fileName: fileName
         })
       });
 

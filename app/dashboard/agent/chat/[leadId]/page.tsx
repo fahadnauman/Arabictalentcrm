@@ -7,6 +7,7 @@ import StatusUpdater                from "./StatusUpdater";
 import ChatFeed, { ChatMessage }    from "./ChatFeed";
 import LeadInfoTrigger              from "./LeadInfoTrigger";
 import CallLeadButton               from "./CallLeadButton";
+import RefreshMessagesButton        from "./RefreshMessagesButton";
 import styles from "../../agent.module.css";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -48,16 +49,31 @@ export default async function ChatPage({
     ? `AED ${(Number(lead.dealValueCents) / 100).toLocaleString("en-AE")}`
     : null;
 
-  const initialMsgs: ChatMessage[] = lead.messages.map((m) => ({
-    id:         m.id,
-    body:       m.body,
-    direction:  m.direction,
-    sentAt:     m.sentAt.toISOString(),
-    senderName: m.sentBy?.name ?? null,
-    mediaUrl:   m.mediaUrl,
-    mediaType:  m.mediaType,
-    isStatusReply: m.isStatusReply,
-  }));
+  const initialMsgs: ChatMessage[] = lead.messages.map((m) => {
+    const hasMedia = !!(m.mediaUrl || (m.mediaType && (
+      m.mediaType.includes("image") ||
+      m.mediaType.includes("audio") ||
+      m.mediaType.includes("video") ||
+      m.mediaType.includes("document") ||
+      m.mediaType.includes("ogg") ||
+      m.mediaType.includes("opus") ||
+      m.mediaType.includes("webm") ||
+      m.mediaType.includes("wav") ||
+      m.mediaType.includes("mp4") ||
+      m.mediaType.includes("pdf")
+    )));
+
+    return {
+      id:         m.id,
+      body:       m.body,
+      direction:  m.direction,
+      sentAt:     m.sentAt.toISOString(),
+      senderName: m.sentBy?.name ?? null,
+      mediaUrl:   m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null),
+      mediaType:  m.mediaType,
+      isStatusReply: m.isStatusReply,
+    };
+  });
 
   // Serialised lead for the LeadInfoPanel (client)
   const serialisedLead = {
@@ -110,14 +126,17 @@ export default async function ChatPage({
             </div>
           </div>
 
-          <span style={{
-            fontSize: "0.62rem", fontWeight: 700, padding: "0.2rem 0.55rem",
-            borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.05em",
-            border: `1px solid ${meta.color}40`, background: `${meta.color}15`, color: meta.color,
-            flexShrink: 0,
-          }}>
-            {meta.label}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginLeft: "auto" }}>
+            <RefreshMessagesButton />
+            <span style={{
+              fontSize: "0.62rem", fontWeight: 700, padding: "0.2rem 0.55rem",
+              borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.05em",
+              border: `1px solid ${meta.color}40`, background: `${meta.color}15`, color: meta.color,
+              flexShrink: 0,
+            }}>
+              {meta.label}
+            </span>
+          </div>
         </div>
 
         {/* Metadata strip */}

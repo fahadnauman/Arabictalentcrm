@@ -10,13 +10,22 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    const data = payload.data;
-    if (!data || !data.key || data.key.fromMe) {
+    let data = payload.data;
+    
+    // Evolution API sometimes sends data as an array
+    if (Array.isArray(data)) {
+      data = data[0];
+    }
+    
+    // In Evolution API v2, the message is often nested under data.message
+    const messageData = data?.message?.key ? data.message : data;
+
+    if (!messageData || !messageData.key || messageData.key.fromMe) {
       // Ignore our own outbound messages or malformed payloads
       return NextResponse.json({ success: true });
     }
 
-    const remoteJid = data.key.remoteJid;
+    const remoteJid = messageData.key.remoteJid;
     if (!remoteJid || remoteJid.includes("@g.us")) {
       // Ignore group messages for now
       return NextResponse.json({ success: true });
@@ -24,26 +33,69 @@ export async function POST(req: Request) {
 
     // Clean phone number
     const phone = remoteJid.replace("@s.whatsapp.net", "").replace("+", "");
-    const messageSid = data.key.id;
-    const profileName = data.pushName || "Unknown WhatsApp User";
+    const messageSid = messageData.key.id;
+    const profileName = messageData.pushName || "Unknown WhatsApp User";
 
-    // Extract text body
+    // Extract text body or media caption
     let body = "";
-    if (data.message?.conversation) {
-      body = data.message.conversation;
-    } else if (data.message?.extendedTextMessage?.text) {
-      body = data.message.extendedTextMessage.text;
+    if (messageData.message?.conversation) {
+      body = messageData.message.conversation;
+    } else if (messageData.message?.extendedTextMessage?.text) {
+      body = messageData.message.extendedTextMessage.text;
+    } else if (messageData.message?.imageMessage?.caption) {
+      body = messageData.message.imageMessage.caption;
+    } else if (messageData.message?.videoMessage?.caption) {
+      body = messageData.message.videoMessage.caption;
+    } else if (messageData.message?.documentMessage?.caption) {
+      body = messageData.message.documentMessage.caption;
     }
 
-    // Media handling (Evolution API sends base64 if enabled, or just the mediaType)
-    // We'll leave mediaUrl null for now since Evolution media downloads require extra API calls
-    // unless base64 is explicitly included in the webhook.
-    const messageType = data.messageType;
+    // Media handling
+    const messageType = messageData.messageType || Object.keys(messageData.message || {})[0];
     let mediaUrl = null;
     let mediaType = null;
-    if (messageType === "imageMessage" || messageType === "videoMessage" || messageType === "audioMessage" || messageType === "documentMessage") {
-      mediaType = messageType;
+    let rawPayload: any = null;
+
+    if (
+      messageType === "imageMessage" ||
+      messageType === "videoMessage" ||
+      messageType === "audioMessage" ||
+      messageType === "documentMessage" ||
+      messageType?.includes("image") ||
+      messageType?.includes("audio") ||
+      messageType?.includes("video") ||
+      messageType?.includes("document")
+    ) {
+      const msgObj = messageData.message?.[messageType] || {};
+      const mime = msgObj.mimetype || (
+        messageType.includes("image") ? "image/jpeg" :
+        messageType.includes("audio") ? "audio/ogg; codecs=opus" :
+        messageType.includes("video") ? "video/mp4" :
+        "application/pdf"
+      );
+      mediaType = mime;
+
       if (!body) body = "Media Attachment";
+
+      // Extract base64 if provided by Evolution API webhook (with webhookBase64: true)
+      const base64Data = 
+        payload.data?.base64 || 
+        messageData.base64 || 
+        msgObj.base64 || 
+        payload.base64;
+
+      if (base64Data) {
+        rawPayload = {
+          type: "attachment",
+          base64: base64Data,
+          message: messageData
+        };
+      } else {
+        rawPayload = {
+          type: "attachment",
+          message: messageData
+        };
+      }
     }
 
     // 1. Match the clean phone number against the Prisma lead table
@@ -94,6 +146,7 @@ export async function POST(req: Request) {
         status: "RECEIVED",
         mediaUrl,
         mediaType,
+        rawPayload,
       }
     });
 

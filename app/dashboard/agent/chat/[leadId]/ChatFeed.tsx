@@ -91,6 +91,55 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
 
   useEffect(() => { scrollDown(); }, [messages.length, scrollDown]);
 
+  // Sync state with server revalidations (e.g. router.refresh)
+  useEffect(() => {
+    setMessages(initialMsgs);
+  }, [initialMsgs]);
+
+  // Auto-polling: fetch fresh messages every 3 seconds
+  useEffect(() => {
+    let isMounted = true;
+
+    async function pollMessages() {
+      try {
+        const res = await fetch(`/api/leads/${leadId}/messages`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const freshMsgs: ChatMessage[] = await res.json();
+        if (!isMounted) return;
+
+        setMessages((prev) => {
+          // If no change, return prev to preserve references and avoid rerender
+          if (
+            prev.length === freshMsgs.length &&
+            prev.every((m, i) => m.id === freshMsgs[i]?.id && !m.pending && !m.failed)
+          ) {
+            return prev;
+          }
+
+          const pendingMsgs = prev.filter((m) => m.pending);
+          if (pendingMsgs.length === 0) {
+            return freshMsgs;
+          }
+
+          // If there are pending optimistic messages, preserve them at the end
+          const freshIds = new Set(freshMsgs.map((m) => m.id));
+          const stillPending = pendingMsgs.filter((m) => !freshIds.has(m.id));
+          return [...freshMsgs, ...stillPending];
+        });
+      } catch (err) {
+        // Silently ignore transient network polling errors
+      }
+    }
+
+    const intervalId = setInterval(pollMessages, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [leadId]);
+
   // Auto-resize textarea
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value);
@@ -195,7 +244,25 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     } else {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
+
+        // Let the browser record in its native supported MIME type without forcing unsupported codecs
+        let preferredMime = "";
+        if (typeof MediaRecorder !== "undefined") {
+          if (MediaRecorder.isTypeSupported("audio/webm; codecs=opus")) {
+            preferredMime = "audio/webm; codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+            preferredMime = "audio/webm";
+          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+            preferredMime = "audio/mp4";
+          } else if (MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")) {
+            preferredMime = "audio/ogg; codecs=opus";
+          } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+            preferredMime = "audio/ogg";
+          }
+        }
+
+        const recorderOptions: MediaRecorderOptions = preferredMime ? { mimeType: preferredMime } : {};
+        const recorder = new MediaRecorder(stream, recorderOptions);
         audioChunksRef.current = [];
 
         recorder.ondataavailable = (e) => {
@@ -203,14 +270,25 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
         };
 
         recorder.onstop = () => {
-          const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+          // Native uncorrupted blob using the recorder's actual MIME type
+          const actualMime = recorder.mimeType || preferredMime || "audio/webm";
+          const blob = new Blob(audioChunksRef.current, { type: actualMime });
           const reader = new FileReader();
           reader.onload = (event) => {
             const base64 = event.target?.result as string;
-            processUpload(base64, 'audio/webm', 'Voice Note');
+
+            // Determine native extension
+            let ext = "webm";
+            if (actualMime.includes("ogg")) ext = "ogg";
+            else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
+            else if (actualMime.includes("wav")) ext = "wav";
+            else if (actualMime.includes("webm")) ext = "webm";
+
+            const filename = `voice_note.${ext}`;
+            processUpload(base64, actualMime, filename);
           };
           reader.readAsDataURL(blob);
-          stream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach((track) => track.stop());
         };
 
         recorder.start();
@@ -298,21 +376,138 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
                   </div>
                 )}
 
-                {msg.mediaUrl && (
-                  <div style={{ marginBottom: "0.5rem" }}>
-                    {msg.mediaType?.startsWith("image/") ? (
-                      <img src={msg.mediaUrl} alt="attachment" style={{ maxWidth: "100%", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.1)" }} />
-                    ) : msg.mediaType?.startsWith("audio/") ? (
-                      <audio controls src={msg.mediaUrl} style={{ width: "100%", maxWidth: "250px" }} />
-                    ) : (
-                      <a href={msg.mediaUrl} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.5rem", background: "rgba(255,255,255,0.05)", borderRadius: "8px", textDecoration: "none", color: "#20C997" }}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-                        <span style={{ fontSize: "0.85rem", fontWeight: 600, wordBreak: "break-all" }}>{msg.body || "Document Attachment"}</span>
-                      </a>
-                    )}
-                  </div>
-                )}
-                {!msg.mediaUrl && <p className={chatStyles.bubbleText}>{msg.body}</p>}
+                {/* Visual Media Rendering */}
+                {(() => {
+                  const mType = (msg.mediaType || "").toLowerCase();
+                  const isImg = 
+                    mType.startsWith("image/") ||
+                    mType === "imagemessage" ||
+                    mType.includes("image");
+
+                  const isAud =
+                    mType.startsWith("audio/") ||
+                    mType === "audiomessage" ||
+                    mType.includes("audio") ||
+                    mType.includes("ogg") ||
+                    mType.includes("opus") ||
+                    mType.includes("webm") ||
+                    mType.includes("wav") ||
+                    mType.includes("m4a") ||
+                    mType.includes("voice");
+
+                  const isVid =
+                    mType.startsWith("video/") ||
+                    mType === "videomessage" ||
+                    mType.includes("video");
+
+                  const isDoc =
+                    mType.startsWith("application/") ||
+                    mType === "documentmessage" ||
+                    mType.includes("pdf") ||
+                    mType.includes("document");
+
+                  const hasMedia = isImg || isAud || isVid || isDoc || !!msg.mediaUrl;
+                  const mediaSrc = msg.mediaUrl || (hasMedia ? `/api/media/${msg.id}` : null);
+
+                  const isFallbackText = 
+                    !msg.body ||
+                    msg.body.trim() === "Media Attachment" || 
+                    msg.body.trim().startsWith("voice_note.") || 
+                    msg.body.trim() === "Voice Note";
+
+                  const showCaption = !isFallbackText && msg.body.trim().length > 0;
+
+                  return (
+                    <>
+                      {hasMedia && mediaSrc && (
+                        <div style={{ marginBottom: showCaption ? "0.45rem" : "0.15rem" }}>
+                          {isImg ? (
+                            <a href={mediaSrc} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
+                              <img
+                                src={mediaSrc}
+                                alt={showCaption ? msg.body : "Image attachment"}
+                                loading="lazy"
+                                style={{
+                                  maxWidth: "100%",
+                                  maxHeight: "340px",
+                                  borderRadius: "10px",
+                                  display: "block",
+                                  objectFit: "cover",
+                                  border: "1px solid rgba(255,255,255,0.12)",
+                                  cursor: "pointer",
+                                  transition: "transform 0.15s ease",
+                                }}
+                              />
+                            </a>
+                          ) : isAud ? (
+                            <div style={{ padding: "0.15rem 0", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                              <audio
+                                controls
+                                preload="metadata"
+                                src={mediaSrc}
+                                style={{
+                                  width: "100%",
+                                  minWidth: "220px",
+                                  maxWidth: "280px",
+                                  height: "38px",
+                                  borderRadius: "20px",
+                                }}
+                              />
+                            </div>
+                          ) : isVid ? (
+                            <video
+                              controls
+                              preload="metadata"
+                              src={mediaSrc}
+                              style={{
+                                maxWidth: "100%",
+                                maxHeight: "320px",
+                                borderRadius: "10px",
+                                display: "block",
+                                border: "1px solid rgba(255,255,255,0.12)",
+                              }}
+                            />
+                          ) : (
+                            <a
+                              href={mediaSrc}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "0.5rem",
+                                padding: "0.5rem 0.75rem",
+                                background: "rgba(255,255,255,0.06)",
+                                border: "1px solid rgba(255,255,255,0.1)",
+                                borderRadius: "8px",
+                                textDecoration: "none",
+                                color: "#20C997",
+                              }}
+                            >
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                                <polyline points="10 9 9 9 8 9"/>
+                              </svg>
+                              <span style={{ fontSize: "0.82rem", fontWeight: 600, wordBreak: "break-all" }}>
+                                {showCaption ? msg.body : "Document Attachment"}
+                              </span>
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Display actual text message/caption only (never fallback 'Media Attachment' text) */}
+                      {(!hasMedia || showCaption) && (
+                        <p className={chatStyles.bubbleText}>
+                          {isFallbackText ? "" : msg.body}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
                 <div className={chatStyles.bubbleMeta}>
                   <span className={chatStyles.bubbleTime}>{fmtTime(msg.sentAt)}</span>
                   {isOut && (

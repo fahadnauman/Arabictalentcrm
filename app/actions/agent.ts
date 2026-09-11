@@ -18,6 +18,7 @@ export interface CreateAgentInput {
   email:    string;
   phone:    string;
   isActive: boolean;
+  languageGroup: string;
 }
 
 export async function createAgent(data: CreateAgentInput) {
@@ -41,10 +42,12 @@ export async function createAgent(data: CreateAgentInput) {
         data: {
           name:         data.name,
           email:        data.email,
+          phone:        data.phone,
           passwordHash: passwordHash,
           avatarUrl:    avatarUrl,
           role:         "AGENT",
           isActive:     data.isActive,
+          languageGroup: data.languageGroup || "ENGLISH",
         }
       });
 

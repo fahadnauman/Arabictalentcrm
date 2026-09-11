@@ -61,7 +61,7 @@ export async function getNextAgentInRotation(preferredLanguage?: string): Promis
 
   return prisma.$transaction(async (tx) => {
     // 1 — Find the next eligible agent exclusively within the target language pool
-    const slot = await tx.roundRobinQueue.findFirst({
+    let slot = await tx.roundRobinQueue.findFirst({
       where:   { 
         isActive: true,
         agent: {
@@ -79,7 +79,28 @@ export async function getNextAgentInRotation(preferredLanguage?: string): Promis
       },
     });
 
-    // No active agents configured in this language pool (zero cross-assignment guarantee)
+    // Fallback to ENGLISH pool if target pool is empty
+    if ((!slot || !slot.agent.isActive) && targetLanguage !== "ENGLISH") {
+      slot = await tx.roundRobinQueue.findFirst({
+        where:   { 
+          isActive: true,
+          agent: {
+            isActive: true,
+            role: "AGENT",
+            languageGroup: "ENGLISH",
+          },
+        },
+        orderBy: [
+          { lastAssignedAt: "asc" },
+          { position:       "asc" },
+        ],
+        include: {
+          agent: { select: { id: true, name: true, isActive: true, languageGroup: true } },
+        },
+      });
+    }
+
+    // No active agents configured in any pool
     if (!slot || !slot.agent.isActive) return null;
 
     // 2 — Advance this agent's cursor so the next call picks someone else

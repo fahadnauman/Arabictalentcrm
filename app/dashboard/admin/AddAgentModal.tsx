@@ -14,6 +14,7 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [languageGroup, setLanguageGroup] = useState("ENGLISH");
 
   const [successData, setSuccessData] = useState<{ password: string } | null>(null);
 
@@ -23,7 +24,7 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
   // Reset state when opened
   useEffect(() => {
     if (isOpen) {
-      setName(""); setEmail(""); setPhone(""); setIsActive(true);
+      setName(""); setEmail(""); setPhone(""); setIsActive(true); setLanguageGroup("ENGLISH");
       setError(""); setSuccessData(null);
     }
   }, [isOpen]);
@@ -34,7 +35,7 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
 
     startTx(async () => {
       try {
-        const res = await createAgent({ name, email, phone, isActive });
+        const res = await createAgent({ name, email, phone, isActive, languageGroup });
         setSuccessData({ password: res.tempPassword });
         router.refresh();
       } catch (err: any) {
@@ -111,6 +112,14 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#8b8aa8", textTransform: "uppercase" }}>Phone Number</label>
                 <input value={phone} onChange={e => setPhone(e.target.value)} style={inputSty} placeholder="+971..." disabled={isPending} />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#8b8aa8", textTransform: "uppercase" }}>Language Pool</label>
+                <select value={languageGroup} onChange={e => setLanguageGroup(e.target.value)} style={{...inputSty, appearance: "none"}} disabled={isPending}>
+                  <option value="ENGLISH">English (GCC / Default)</option>
+                  <option value="MALAYALAM">Malayalam (Kerala)</option>
+                </select>
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "0.5rem", background: "rgba(255,255,255,0.02)", padding: "1rem", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.05)" }}>

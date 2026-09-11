@@ -18,19 +18,27 @@ export interface SentMessage {
   mediaType?: string | null;
 }
 
+export type SendMessageResult =
+  | { success: true; data: SentMessage }
+  | { success: false; status: number; error: string; rawResponse?: string };
+
 /** Saves an outbound message to the database and sends it via Evolution API. */
 export async function sendMessage(
   leadId: string,
   body:   string,
   mediaBase64?: string,
   mediaType?: string
-): Promise<SentMessage> {
+): Promise<SendMessageResult> {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
-  if (!token) throw new Error("Unauthorised");
+  if (!token) {
+    return { success: false, status: 401, error: "Unauthorised", rawResponse: "Missing authentication cookie" };
+  }
 
   const user = await verifyToken(token);
-  if (!user) throw new Error("Unauthorised");
+  if (!user) {
+    return { success: false, status: 401, error: "Unauthorised", rawResponse: "Invalid JWT token" };
+  }
 
   // Row-level guard: Fetch lead
   const lead = await prisma.lead.findUnique({
@@ -38,10 +46,12 @@ export async function sendMessage(
     select: { id: true, phone: true, assignedAgentId: true }
   });
 
-  if (!lead) throw new Error("Lead not found");
+  if (!lead) {
+    return { success: false, status: 404, error: "Lead not found", rawResponse: `No lead found for id: ${leadId}` };
+  }
 
   if (user.role === "AGENT" && lead.assignedAgentId !== user.id) {
-    throw new Error("Access denied: Not your lead");
+    return { success: false, status: 403, error: "Access denied: Not your lead", rawResponse: "Forbidden: Lead assigned to another agent" };
   }
 
   // We generate a temp ID for the URL if needed, but since we create it first, we'll update it after if we have media.
@@ -148,7 +158,14 @@ export async function sendMessage(
 
         if (!res.ok) {
           const errText = await res.text();
-          throw new Error(`Evolution API sendWhatsAppAudio Error: ${res.status} ${errText}`);
+          console.error(`Evolution API sendWhatsAppAudio Error: ${res.status} ${errText}`);
+          await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } }).catch(() => {});
+          return {
+            success: false,
+            status: res.status,
+            error: `Evolution API Audio Error: HTTP ${res.status}`,
+            rawResponse: errText,
+          };
         }
 
         const evoData = await res.json().catch(() => null);
@@ -181,7 +198,14 @@ export async function sendMessage(
 
         if (!res.ok) {
           const errText = await res.text();
-          throw new Error(`Evolution API sendMedia Error: ${res.status} ${errText}`);
+          console.error(`Evolution API sendMedia Error: ${res.status} ${errText}`);
+          await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } }).catch(() => {});
+          return {
+            success: false,
+            status: res.status,
+            error: `Evolution API Media Error: HTTP ${res.status}`,
+            rawResponse: errText,
+          };
         }
       }
     } else {
@@ -204,7 +228,14 @@ export async function sendMessage(
 
       if (!res.ok) {
         const errText = await res.text();
-        throw new Error(`Evolution API Error: ${res.status} ${errText}`);
+        console.error(`Evolution API sendText Error: ${res.status} ${errText}`);
+        await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } }).catch(() => {});
+        return {
+          success: false,
+          status: res.status,
+          error: `Evolution API Text Error: HTTP ${res.status}`,
+          rawResponse: errText,
+        };
       }
     }
   } catch (err: unknown) {
@@ -212,17 +243,27 @@ export async function sendMessage(
     console.error("Failed to send message via Evolution API:", errorMessage);
     
     // Update DB status to FAILED
-    await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } });
-    throw new Error(`Evolution Error: ${errorMessage}`);
+    if (msg?.id) {
+      await prisma.message.update({ where: { id: msg.id }, data: { status: "FAILED" } }).catch(() => {});
+    }
+    return {
+      success: false,
+      status: 500,
+      error: `Evolution Error: ${errorMessage}`,
+      rawResponse: err instanceof Error ? (err.stack || err.message) : String(err),
+    };
   }
 
   return {
-    id:         msg.id,
-    body:       msg.body,
-    direction:  msg.direction,
-    sentAt:     msg.sentAt.toISOString(),
-    senderName: msg.sentBy?.name ?? null,
-    mediaUrl:   msg.mediaUrl,
-    mediaType:  msg.mediaType,
+    success: true,
+    data: {
+      id:         msg.id,
+      body:       msg.body,
+      direction:  msg.direction,
+      sentAt:     msg.sentAt.toISOString(),
+      senderName: msg.sentBy?.name ?? null,
+      mediaUrl:   msg.mediaUrl,
+      mediaType:  msg.mediaType,
+    },
   };
 }

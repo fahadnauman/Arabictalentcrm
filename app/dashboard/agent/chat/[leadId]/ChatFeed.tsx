@@ -76,6 +76,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
   const [showMenu, setShowMenu]   = useState(false);
   const [isPending, startTx]      = useTransition();
   const [errorId, setErrorId]     = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const bottomRef                 = useRef<HTMLDivElement>(null);
@@ -172,7 +173,24 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     // 2. Background save — replaces temp with persisted record
     (async () => {
       try {
-        const saved: SentMessage = await sendMessage(leadId, body);
+        const res = await sendMessage(leadId, body);
+        if (!res.success) {
+          const httpStatus = res.status || 500;
+          const rawResponse = res.rawResponse || res.error || "Unknown server response";
+          console.log("Chat Message Error - HTTP status code:", httpStatus);
+          console.log("Chat Message Error - raw error response:", rawResponse);
+          console.error("[Chat Message Failure]", { status: httpStatus, rawResponse, error: res.error });
+          setErrorMessage(`⚠ Failed to send message (HTTP ${httpStatus}): ${res.error || rawResponse}`);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId ? { ...m, pending: false, failed: true } : m
+            )
+          );
+          setErrorId(tempId);
+          return;
+        }
+
+        const saved = res.data;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId
@@ -181,8 +199,14 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
           )
         );
         setErrorId(null);
-      } catch {
-        // Mark the message as failed
+        setErrorMessage(null);
+      } catch (err: any) {
+        const httpStatus = err?.status || err?.statusCode || err?.response?.status || (typeof err?.digest === "string" ? `Server Action Error (${err.digest})` : 500);
+        const rawResponse = err?.response?.data || (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+        console.log("Chat Message Error - HTTP status code:", httpStatus);
+        console.log("Chat Message Error - raw error response:", rawResponse);
+        console.error("[Chat Message Exception]", { status: httpStatus, rawResponse, error: err, digest: err?.digest });
+        setErrorMessage(`⚠ Failed to send message (Status: ${httpStatus}): ${err?.message || "Check console"}`);
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId ? { ...m, pending: false, failed: true } : m
@@ -211,10 +235,40 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
 
     startTx(async () => {
       try {
-        const saved: SentMessage = await sendMessage(leadId, filename, base64, mimeType);
+        const res = await sendMessage(leadId, filename, base64, mimeType);
+        if (!res.success) {
+          const httpStatus = res.status || 500;
+          const rawResponse = res.rawResponse || res.error || "Unknown server response";
+          console.log("Upload Error - exact HTTP status code:", httpStatus);
+          console.log("Upload Error - raw error response:", rawResponse);
+          console.error("[Chat Input Upload Error]", {
+            status: httpStatus,
+            rawResponse,
+            error: res.error,
+          });
+          setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${res.error || rawResponse}`);
+          setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
+          setErrorId(tempId);
+          return;
+        }
+
+        const saved = res.data;
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...saved, pending: false } : m));
         setErrorId(null);
-      } catch {
+        setErrorMessage(null);
+      } catch (err: any) {
+        const httpStatus = err?.status || err?.statusCode || err?.response?.status || (typeof err?.digest === "string" ? `Server Action Error (${err.digest})` : "N/A");
+        const rawResponse = err?.response?.data || (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
+        console.log("Upload Error - exact HTTP status code:", httpStatus);
+        console.log("Upload Error - raw error response:", rawResponse);
+        console.error("[Chat Input Upload Exception]", {
+          status: httpStatus,
+          rawResponse,
+          error: err,
+          digest: err?.digest,
+          message: err?.message,
+        });
+        setErrorMessage(`⚠ Upload failed (Status: ${httpStatus}): ${err?.message || "Check console"}`);
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
         setErrorId(tempId);
       } finally {
@@ -232,7 +286,13 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
       const base64 = event.target?.result as string;
       processUpload(base64, file.type, file.name);
     };
-    reader.onerror = () => setIsUploading(false);
+    reader.onerror = (readErr) => {
+      console.log("File reading error:", readErr);
+      console.error("[FileReader Error]", readErr);
+      setIsUploading(false);
+      setErrorMessage("⚠ Failed to read file from disk.");
+      setErrorId(`err-${Date.now()}`);
+    };
     reader.readAsDataURL(file);
     e.target.value = ""; // Reset input
   }
@@ -536,7 +596,7 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
         {/* Error notice */}
         {errorId && (
           <div className={chatStyles.errorBanner}>
-            ⚠ Message failed to send. Check your connection and try again.
+            {errorMessage || "⚠ Message failed to send. Check browser console (F12) for exact HTTP status & raw response."}
           </div>
         )}
 

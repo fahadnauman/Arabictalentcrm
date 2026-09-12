@@ -8,7 +8,7 @@ import {
   useCallback,
   useMemo,
 } from "react";
-import { sendMessage, SentMessage } from "@/app/actions/message";
+import { sendMessage, recordOutboundMedia, SentMessage } from "@/app/actions/message";
 import { updateLeadInfo } from "@/app/actions/lead";
 import styles from "../../agent.module.css";
 import chatStyles from "./chat.module.css";
@@ -29,6 +29,7 @@ export interface ChatMessage {
 
 interface Props {
   leadId:      string;
+  leadPhone:   string;
   agentName:   string;
   initialMsgs: ChatMessage[];
 }
@@ -69,8 +70,12 @@ function groupByDate(messages: ChatMessage[]): MsgGroup[] {
 
 const QUICK_COURSES = ["Business Arabic", "General Arabic", "Kids Arabic", "Beginner Arabic"];
 
+const VPS_DIRECT_UPLOAD_URL =
+  process.env.NEXT_PUBLIC_VPS_DIRECT_UPLOAD_URL ||
+  "https://143.198.182.24.sslip.io/direct-upload";
+
 // ── Component ────────────────────────────────────────────────────────────
-export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
+export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: Props) {
   const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs);
   const [text, setText]           = useState("");
   const [showMenu, setShowMenu]   = useState(false);
@@ -237,44 +242,152 @@ export default function ChatFeed({ leadId, agentName, initialMsgs }: Props) {
     setMessages((prev) => [...prev, optimistic]);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file, filename);
-      formData.append("leadId", leadId);
-      formData.append("caption", filename);
+      const cleanPhone = (leadPhone || "").replace(/\D/g, "");
+      if (!cleanPhone) {
+        throw new Error("Missing recipient phone number for lead");
+      }
 
-      const res = await fetch("/api/messages/upload", {
+      const lowerName = filename.toLowerCase();
+      let rawMime = (mimeType || (file as File).type || "").split(";")[0].trim().toLowerCase();
+
+      // Normalize MIME from filename if missing or generic
+      if (!rawMime || rawMime === "application/octet-stream") {
+        if (lowerName.endsWith(".mp4") || lowerName.endsWith(".m4v")) rawMime = "video/mp4";
+        else if (lowerName.endsWith(".mov")) rawMime = "video/quicktime";
+        else if (lowerName.endsWith(".webm")) rawMime = "video/webm";
+        else if (lowerName.endsWith(".png")) rawMime = "image/png";
+        else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) rawMime = "image/jpeg";
+        else if (lowerName.endsWith(".webp")) rawMime = "image/webp";
+        else if (lowerName.endsWith(".pdf")) rawMime = "application/pdf";
+        else if (lowerName.endsWith(".ogg") || lowerName.endsWith(".opus")) rawMime = "audio/ogg";
+        else if (lowerName.endsWith(".mp3")) rawMime = "audio/mpeg";
+        else if (lowerName.endsWith(".wav")) rawMime = "audio/wav";
+        else if (lowerName.endsWith(".m4a")) rawMime = "audio/mp4";
+      }
+
+      const isVideo =
+        rawMime.startsWith("video/") ||
+        lowerName.endsWith(".mp4") ||
+        lowerName.endsWith(".m4v") ||
+        lowerName.endsWith(".mov") ||
+        lowerName.endsWith(".webm");
+
+      const isAudio =
+        !isVideo &&
+        (rawMime.startsWith("audio/") ||
+         rawMime === "audio/ogg" ||
+         rawMime === "audio/webm" ||
+         rawMime.includes("opus") ||
+         lowerName.endsWith(".ogg") ||
+         lowerName.endsWith(".mp3") ||
+         lowerName.endsWith(".wav") ||
+         lowerName.endsWith(".m4a") ||
+         lowerName.startsWith("voice_note."));
+
+      const isImage = !isVideo && !isAudio && rawMime.startsWith("image/");
+
+      const targetMime = isVideo
+        ? "video/mp4"
+        : isAudio
+        ? (rawMime || "audio/ogg")
+        : (rawMime || "application/octet-stream");
+
+      const computedMediatype = isVideo ? "video" : isImage ? "image" : isAudio ? "audio" : "document";
+
+      let finalFileName: string;
+      if (isVideo) {
+        const base = filename.replace(/\.[^/.]+$/, "");
+        finalFileName = `${base || "video"}.mp4`;
+      } else if (isAudio) {
+        let ext = "ogg";
+        if (rawMime.includes("webm")) ext = "webm";
+        else if (rawMime.includes("mp4") || rawMime.includes("m4a")) ext = "m4a";
+        else if (rawMime.includes("wav")) ext = "wav";
+        else if (rawMime.includes("mp3") || rawMime.includes("mpeg")) ext = "mp3";
+
+        const isVoice = filename === "Voice Note" || filename.startsWith("voice_note.");
+        finalFileName = isVoice ? `voice_note.${ext}` : (filename.includes(".") ? filename : `${filename}.${ext}`);
+      } else {
+        finalFileName = filename;
+      }
+
+      // 1. Direct POST to secure DigitalOcean VPS Nginx endpoint (bypassing Vercel 4.5MB payload limit)
+      const formData = new FormData();
+      formData.append("file", file, finalFileName);
+      formData.append("number", cleanPhone);
+      formData.append("mediatype", computedMediatype);
+      formData.append("mimetype", targetMime);
+      formData.append("fileName", finalFileName);
+      formData.append("caption", finalFileName);
+
+      const res = await fetch(VPS_DIRECT_UPLOAD_URL, {
         method: "POST",
         body: formData,
       });
 
-      const data = await res.json().catch(() => null);
+      const evoData = await res.json().catch(() => null);
 
-      if (!res.ok || !data?.success) {
+      if (!res.ok) {
         const httpStatus = res.status || 500;
-        const rawResponse = data?.rawResponse || data?.error || (typeof data === "string" ? data : JSON.stringify(data));
-        console.log("Upload Error - exact HTTP status code:", httpStatus);
-        console.log("Upload Error - raw error response:", rawResponse);
-        console.error("[Chat Input Upload Error]", {
+        const rawResponse = evoData?.response?.message || evoData?.error || (typeof evoData === "string" ? evoData : JSON.stringify(evoData));
+        console.log("Direct VPS Upload Error - exact HTTP status code:", httpStatus);
+        console.log("Direct VPS Upload Error - raw error response:", rawResponse);
+        console.error("[Direct VPS Upload Error]", {
           status: httpStatus,
           rawResponse,
-          error: data?.error,
+          error: evoData?.error,
         });
-        setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${data?.error || rawResponse || "Check console for details"}`);
+        setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${evoData?.error || rawResponse || "Check console for details"}`);
         setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
         setErrorId(tempId);
         return;
       }
 
-      const saved: ChatMessage = data.message;
-      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...saved, pending: false } : m));
-      setErrorId(null);
-      setErrorMessage(null);
+      // 2. Persist message record in DB via lightweight Server Action (<1KB metadata, zero large binary)
+      const evoMetadata = {
+        key: evoData?.key,
+        message: evoData?.message,
+        messageType: evoData?.messageType,
+        status: evoData?.status,
+        messageTimestamp: evoData?.messageTimestamp,
+      };
+
+      const recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
+
+      if (recordRes.success) {
+        const saved: ChatMessage = recordRes.data;
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...saved,
+                  mediaUrl: localPreviewUrl, // Maintain local preview for agent
+                  pending: false,
+                }
+              : m
+          )
+        );
+        setErrorId(null);
+        setErrorMessage(null);
+      } else {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  id: evoData?.key?.id || tempId,
+                  pending: false,
+                }
+              : m
+          )
+        );
+      }
     } catch (err: any) {
       const httpStatus = err?.status || err?.statusCode || 500;
       const rawResponse = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      console.log("Upload Error - exact HTTP status code:", httpStatus);
-      console.log("Upload Error - raw error response:", rawResponse);
-      console.error("[Chat Input Upload Exception]", {
+      console.log("Direct Upload Exception - exact HTTP status code:", httpStatus);
+      console.log("Direct Upload Exception - raw error response:", rawResponse);
+      console.error("[Direct Upload Exception]", {
         status: httpStatus,
         rawResponse,
         error: err,

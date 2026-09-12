@@ -166,6 +166,7 @@ export default async function ChatPage({
       ══════════════════════════════════════════════════════════ */}
       <ChatFeed
         leadId={lead.id}
+        leadPhone={lead.phone}
         agentName={user.name}
         initialMsgs={initialMsgs}
       />

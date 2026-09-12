@@ -267,3 +267,93 @@ export async function sendMessage(
     },
   };
 }
+
+/**
+ * Records an outbound media message in the database that was already transmitted
+ * directly from the browser to the DigitalOcean VPS Evolution API endpoint.
+ */
+export async function recordOutboundMedia(
+  leadId: string,
+  fileName: string,
+  mimeType: string,
+  evoMetadata?: any
+): Promise<SendMessageResult> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(COOKIE_NAME)?.value;
+  if (!token) {
+    return { success: false, status: 401, error: "Unauthorised", rawResponse: "Missing authentication cookie" };
+  }
+
+  const user = await verifyToken(token);
+  if (!user) {
+    return { success: false, status: 401, error: "Unauthorised", rawResponse: "Invalid JWT token" };
+  }
+
+  // Row-level guard: Fetch lead
+  const lead = await prisma.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, assignedAgentId: true },
+  });
+
+  if (!lead) {
+    return { success: false, status: 404, error: "Lead not found", rawResponse: `No lead found for id: ${leadId}` };
+  }
+
+  if (user.role === "AGENT" && lead.assignedAgentId !== user.id) {
+    return { success: false, status: 403, error: "Access denied: Not your lead", rawResponse: "Forbidden: Lead assigned to another agent" };
+  }
+
+  const twilioSid = evoMetadata?.key?.id || null;
+
+  // Persist record to DB
+  let msg = await prisma.message.create({
+    data: {
+      leadId,
+      body: fileName,
+      direction: "OUTBOUND",
+      status: "SENT",
+      sentById: user.id,
+      mediaType: mimeType,
+      twilioSid: twilioSid,
+      rawPayload: evoMetadata || { type: "direct_upload", fileName },
+    },
+    select: {
+      id: true,
+      body: true,
+      direction: true,
+      sentAt: true,
+      sentBy: { select: { name: true } },
+      mediaUrl: true,
+      mediaType: true,
+    },
+  });
+
+  const mediaUrl = `/api/media/${msg.id}`;
+  msg = await prisma.message.update({
+    where: { id: msg.id },
+    data: { mediaUrl },
+    select: {
+      id: true,
+      body: true,
+      direction: true,
+      sentAt: true,
+      sentBy: { select: { name: true } },
+      mediaUrl: true,
+      mediaType: true,
+    },
+  });
+
+  return {
+    success: true,
+    data: {
+      id: msg.id,
+      body: msg.body,
+      direction: msg.direction,
+      sentAt: msg.sentAt.toISOString(),
+      senderName: msg.sentBy?.name ?? null,
+      mediaUrl: msg.mediaUrl,
+      mediaType: msg.mediaType,
+    },
+  };
+}
+

@@ -14,10 +14,11 @@ async function getUser() {
 }
 
 export interface CreateAgentInput {
-  name:     string;
-  email:    string;
-  phone:    string;
-  isActive: boolean;
+  name:          string;
+  email:         string;
+  password?:     string;
+  phone:         string;
+  isActive:      boolean;
   languageGroup: string;
 }
 
@@ -27,9 +28,14 @@ export async function createAgent(data: CreateAgentInput) {
     throw new Error("Unauthorized. Only admins can create agents.");
   }
 
-  // Generate a random temporary password
-  const tempPassword = crypto.randomBytes(6).toString("hex"); // e.g. a1b2c3d4e5f6
-  const passwordHash = await bcrypt.hash(tempPassword, 10);
+  // Use provided password or fallback to random generated password
+  const plainPassword = (data.password || "").trim() || crypto.randomBytes(6).toString("hex");
+  if (plainPassword.length < 6) {
+    throw new Error("Password must be at least 6 characters long.");
+  }
+
+  // Securely hash incoming password with bcrypt
+  const passwordHash = await bcrypt.hash(plainPassword, 10);
 
   // Generate default avatar (initials on a neon green background)
   const initials = data.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
@@ -40,13 +46,13 @@ export async function createAgent(data: CreateAgentInput) {
       // Create User
       const user = await tx.user.create({
         data: {
-          name:         data.name,
-          email:        data.email,
-          phone:        data.phone,
-          passwordHash: passwordHash,
-          avatarUrl:    avatarUrl,
-          role:         "AGENT",
-          isActive:     data.isActive,
+          name:          data.name.trim(),
+          email:         data.email.trim().toLowerCase(),
+          phone:         data.phone?.trim() || null,
+          passwordHash:  passwordHash,
+          avatarUrl:     avatarUrl,
+          role:          "AGENT",
+          isActive:      data.isActive,
           languageGroup: data.languageGroup || "ENGLISH",
         }
       });
@@ -72,7 +78,9 @@ export async function createAgent(data: CreateAgentInput) {
     return { 
       success: true, 
       agentId: newAgent.id, 
-      tempPassword 
+      email: newAgent.email,
+      tempPassword: plainPassword,
+      password: plainPassword,
     };
   } catch (error: any) {
     console.error("Agent creation failed:", error);

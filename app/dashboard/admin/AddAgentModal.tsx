@@ -12,11 +12,12 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
   
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [phone, setPhone] = useState("");
   const [isActive, setIsActive] = useState(true);
   const [languageGroup, setLanguageGroup] = useState("ENGLISH");
 
-  const [successData, setSuccessData] = useState<{ password: string } | null>(null);
+  const [successData, setSuccessData] = useState<{ email: string; password: string } | null>(null);
 
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -24,7 +25,7 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
   // Reset state when opened
   useEffect(() => {
     if (isOpen) {
-      setName(""); setEmail(""); setPhone(""); setIsActive(true); setLanguageGroup("ENGLISH");
+      setName(""); setEmail(""); setPassword(""); setPhone(""); setIsActive(true); setLanguageGroup("ENGLISH");
       setError(""); setSuccessData(null);
     }
   }, [isOpen]);
@@ -33,10 +34,15 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
     e.preventDefault();
     setError("");
 
+    if (!password.trim() || password.trim().length < 6) {
+      setError("Password must be at least 6 characters long.");
+      return;
+    }
+
     startTx(async () => {
       try {
-        const res = await createAgent({ name, email, phone, isActive, languageGroup });
-        setSuccessData({ password: res.tempPassword });
+        const res = await createAgent({ name, email, password: password.trim(), phone, isActive, languageGroup });
+        setSuccessData({ email, password: res.password || password.trim() });
         router.refresh();
       } catch (err: any) {
         setError(err.message || "Something went wrong.");
@@ -78,15 +84,19 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
               }}>✓</div>
               <h4 style={{ color: "#f1f0ff", fontSize: "1.2rem", margin: "0 0 0.5rem" }}>Agent Created!</h4>
               <p style={{ color: "#8b8aa8", fontSize: "0.9rem", margin: "0 0 1.5rem" }}>
-                Share these login details securely. The agent will use their email to log in.
+                Share these login details securely. The agent will use their email and password to log in.
               </p>
               
               <div style={{ 
                 background: "#0a0e1a", border: "1px dashed rgba(32,201,151,0.4)", borderRadius: "8px",
-                padding: "1rem", marginBottom: "1.5rem", display: "inline-block", textAlign: "left"
+                padding: "1rem", marginBottom: "1.5rem", display: "inline-block", textAlign: "left", width: "100%", boxSizing: "border-box"
               }}>
-                <div style={{ color: "#8b8aa8", fontSize: "0.75rem", textTransform: "uppercase", marginBottom: "0.25rem" }}>Temporary Password</div>
-                <div style={{ color: "#20C997", fontSize: "1.5rem", fontWeight: 800, letterSpacing: "2px" }}>
+                <div style={{ color: "#8b8aa8", fontSize: "0.75rem", textTransform: "uppercase", marginBottom: "0.25rem" }}>Agent Email (Login ID)</div>
+                <div style={{ color: "#f1f0ff", fontSize: "0.95rem", fontWeight: 600, marginBottom: "0.75rem" }}>
+                  {successData.email}
+                </div>
+                <div style={{ color: "#8b8aa8", fontSize: "0.75rem", textTransform: "uppercase", marginBottom: "0.25rem" }}>Configured Password</div>
+                <div style={{ color: "#20C997", fontSize: "1.35rem", fontWeight: 800, letterSpacing: "1px" }}>
                   {successData.password}
                 </div>
               </div>
@@ -107,6 +117,20 @@ export default function AddAgentModal({ isOpen, onClose }: { isOpen: boolean; on
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                 <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#8b8aa8", textTransform: "uppercase" }}>Email (Login ID)</label>
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)} required style={inputSty} placeholder="agent@arabictalent.com" disabled={isPending} />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                <label style={{ fontSize: "0.75rem", fontWeight: 700, color: "#8b8aa8", textTransform: "uppercase" }}>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  style={inputSty}
+                  placeholder="Enter agent login password (min. 6 chars)"
+                  disabled={isPending}
+                />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>

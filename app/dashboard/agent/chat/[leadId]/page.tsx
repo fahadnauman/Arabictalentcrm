@@ -8,6 +8,8 @@ import ChatFeed, { ChatMessage }    from "./ChatFeed";
 import LeadInfoTrigger              from "./LeadInfoTrigger";
 import CallLeadButton               from "./CallLeadButton";
 import RefreshMessagesButton        from "./RefreshMessagesButton";
+import TransferLeadButton           from "./TransferLeadButton";
+import { prisma }                   from "@/lib/prisma";
 import styles from "../../agent.module.css";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -41,7 +43,21 @@ export default async function ChatPage({
   if (!user || user.role !== "AGENT") redirect("/login");
 
   const { leadId } = await params;
-  const lead = await getLeadWithMessages(leadId, user.id);
+  const [lead, activeAgents] = await Promise.all([
+    getLeadWithMessages(leadId, user.id),
+    prisma.user.findMany({
+      where: { role: "AGENT", isActive: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        avatarUrl: true,
+        languageGroup: true,
+      },
+      orderBy: { name: "asc" },
+    }),
+  ]);
+
   if (!lead) redirect("/dashboard/agent/inbox");
 
   const meta    = STATUS_META[lead.status] ?? STATUS_META["NEW_LEAD"];
@@ -106,6 +122,13 @@ export default async function ChatPage({
           <CallLeadButton leadId={lead.id} leadName={lead.name} />
           {/* Lead Info trigger button */}
           <LeadInfoTrigger lead={serialisedLead} />
+          {/* Transfer Lead button */}
+          <TransferLeadButton
+            leadId={lead.id}
+            leadName={lead.name}
+            currentAgentId={user.id}
+            initialAgents={activeAgents}
+          />
           <form action="/api/auth/logout" method="POST">
             <button type="submit" className={styles.logoutBtn}>Sign out</button>
           </form>
@@ -128,6 +151,12 @@ export default async function ChatPage({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginLeft: "auto" }}>
+            <TransferLeadButton
+              leadId={lead.id}
+              leadName={lead.name}
+              currentAgentId={user.id}
+              initialAgents={activeAgents}
+            />
             <RefreshMessagesButton />
             <span style={{
               fontSize: "0.62rem", fontWeight: 700, padding: "0.2rem 0.55rem",

@@ -129,3 +129,112 @@ export async function updateLeadInfo(leadId: string, data: LeadInfoInput) {
   revalidatePath(`/dashboard/portfolio/${leadId}`);
   revalidatePath("/dashboard/admin/leads");
 }
+
+// ── Lead Transfer System ──────────────────────────────────────────────────
+export interface ActiveAgentItem {
+  id: string;
+  name: string;
+  email: string;
+  avatarUrl: string | null;
+  languageGroup: string;
+}
+
+/** Fetches all active agents for lead transfer selection. */
+export async function getActiveAgents(): Promise<ActiveAgentItem[]> {
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorised");
+
+  return await prisma.user.findMany({
+    where: {
+      role: "AGENT",
+      isActive: true,
+    },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      avatarUrl: true,
+      languageGroup: true,
+    },
+    orderBy: { name: "asc" },
+  });
+}
+
+/** Transfers a lead from the current agent to a target agent in Prisma. */
+export async function transferLead(leadId: string, targetAgentId: string) {
+  const user = await getUser();
+  if (!user) throw new Error("Unauthorised");
+
+  if (!targetAgentId) {
+    throw new Error("Target agent must be specified.");
+  }
+
+  // Verify target agent exists, has AGENT role, and is active
+  const targetAgent = await prisma.user.findUnique({
+    where: { id: targetAgentId },
+    select: {
+      id: true,
+      name: true,
+      role: true,
+      isActive: true,
+      languageGroup: true,
+    },
+  });
+
+  if (!targetAgent || targetAgent.role !== "AGENT" || !targetAgent.isActive) {
+    throw new Error("The selected agent is not active or could not be found.");
+  }
+
+  // Verify user has permission to transfer this lead (ADMIN or current assigned agent)
+  const filter =
+    user.role === "ADMIN"
+      ? { id: leadId }
+      : { id: leadId, assignedAgentId: user.id };
+
+  const lead = await prisma.lead.findFirst({
+    where: filter,
+    select: { id: true, name: true, assignedAgentId: true },
+  });
+
+  if (!lead) {
+    throw new Error("Lead not found or you do not have permission to transfer this lead.");
+  }
+
+  // Update lead assignment in Prisma
+  await prisma.lead.update({
+    where: { id: lead.id },
+    data: {
+      assignedAgentId: targetAgent.id,
+      statusChangedAt: new Date(),
+    },
+  });
+
+  // Log to LeadAssignment history
+  try {
+    await prisma.leadAssignment.create({
+      data: {
+        leadId: lead.id,
+        assignedToId: targetAgent.id,
+        assignedBy: user.name ? `Manual transfer by ${user.name}` : "manual_transfer",
+      },
+    });
+  } catch (logErr) {
+    console.warn("Failed to record lead assignment log:", logErr);
+  }
+
+  revalidatePath(`/dashboard/agent/chat/${leadId}`);
+  revalidatePath("/dashboard/agent/inbox");
+  revalidatePath("/dashboard/agent");
+  revalidatePath("/dashboard/admin/leads");
+  revalidatePath(`/dashboard/portfolio/${leadId}`);
+
+  return {
+    success: true,
+    leadId: lead.id,
+    targetAgent: {
+      id: targetAgent.id,
+      name: targetAgent.name,
+      languageGroup: targetAgent.languageGroup,
+    },
+  };
+}

@@ -74,6 +74,7 @@ export async function GET(
       senderName: m.sentBy?.name ?? null,
       mediaUrl: m.mediaUrl?.includes("localhost:3000") ? `/api/media/${m.id}` : (m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null)),
       mediaType: m.mediaType,
+      status: "sent",
       isStatusReply: m.isStatusReply,
     };
   });

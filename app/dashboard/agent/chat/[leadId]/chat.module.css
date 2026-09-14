@@ -112,7 +112,62 @@
   font-size: 0.6rem; color: rgba(139,138,168,0.7);
 }
 .bubbleStatus {
-  font-size: 0.6rem; color: #20C997; letter-spacing: -0.02em;
+  font-size: 0.6rem;
+  color: #20C997;
+  letter-spacing: -0.02em;
+  display: inline-flex;
+  align-items: center;
+}
+
+.statusClock {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(240, 240, 255, 0.5);
+  animation: pulseClock 1.5s infinite ease-in-out;
+}
+
+@keyframes pulseClock {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 0.9; }
+}
+
+.statusSent {
+  display: inline-flex;
+  align-items: center;
+  color: #20C997;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+
+.statusFailed {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #f87171;
+  font-weight: 600;
+}
+
+.retryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: rgba(248, 113, 113, 0.18);
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  color: #fca5a5;
+  font-size: 0.62rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.retryBtn:hover {
+  background: rgba(248, 113, 113, 0.35);
+  border-color: #f87171;
+  color: #ffffff;
+  transform: translateY(-0.5px);
 }
 
 /* ── Error banner ───────────────────────────────────────────────────────── */

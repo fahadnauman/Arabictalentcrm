@@ -20,11 +20,19 @@ export interface ChatMessage {
   direction:  "INBOUND" | "OUTBOUND";
   sentAt:     string; // ISO string
   senderName: string | null;
+  status?:    "pending" | "sent" | "failed" | string;
   pending?:   boolean;
   failed?:    boolean;
   mediaUrl?:  string | null;
   mediaType?: string | null;
   isStatusReply?: boolean;
+  retryData?: {
+    type: "text" | "media";
+    body?: string;
+    file?: File | Blob;
+    filename?: string;
+    mimeType?: string;
+  };
 }
 
 interface Props {
@@ -99,7 +107,20 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
 
   // Sync state with server revalidations (e.g. router.refresh)
   useEffect(() => {
-    setMessages(initialMsgs);
+    setMessages((prev) => {
+      const pendingOrFailed = prev.filter(
+        (m) => m.status === "pending" || m.status === "failed" || m.pending || m.failed
+      );
+      if (pendingOrFailed.length === 0) {
+        return initialMsgs.map((m) => ({ ...m, status: m.status || "sent" }));
+      }
+      const initialIds = new Set(initialMsgs.map((m) => m.id));
+      const stillPending = pendingOrFailed.filter((m) => !initialIds.has(m.id));
+      return [
+        ...initialMsgs.map((m) => ({ ...m, status: m.status || "sent" })),
+        ...stillPending,
+      ];
+    });
   }, [initialMsgs]);
 
   // Auto-polling: fetch fresh messages every 3 seconds
@@ -119,20 +140,32 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
           // If no change, return prev to preserve references and avoid rerender
           if (
             prev.length === freshMsgs.length &&
-            prev.every((m, i) => m.id === freshMsgs[i]?.id && !m.pending && !m.failed)
+            prev.every(
+              (m, i) =>
+                m.id === freshMsgs[i]?.id &&
+                !m.pending &&
+                !m.failed &&
+                m.status !== "pending" &&
+                m.status !== "failed"
+            )
           ) {
             return prev;
           }
 
-          const pendingMsgs = prev.filter((m) => m.pending);
+          const pendingMsgs = prev.filter(
+            (m) => m.pending || m.failed || m.status === "pending" || m.status === "failed"
+          );
           if (pendingMsgs.length === 0) {
-            return freshMsgs;
+            return freshMsgs.map((m) => ({ ...m, status: m.status || "sent" }));
           }
 
           // If there are pending optimistic messages, preserve them at the end
           const freshIds = new Set(freshMsgs.map((m) => m.id));
           const stillPending = pendingMsgs.filter((m) => !freshIds.has(m.id));
-          return [...freshMsgs, ...stillPending];
+          return [
+            ...freshMsgs.map((m) => ({ ...m, status: m.status || "sent" })),
+            ...stillPending,
+          ];
         });
       } catch (err) {
         // Silently ignore transient network polling errors
@@ -154,31 +187,47 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
 
-  function handleSend() {
-    const body = text.trim();
-    if (!body) return;
+  function handleSend(customBody?: string, retryId?: string) {
+    const bodyToSend = (typeof customBody === "string" ? customBody : text).trim();
+    if (!bodyToSend) return;
 
-    const tempId = `pending-${Date.now()}`;
-    const optimistic: ChatMessage = {
-      id:         tempId,
-      body,
-      direction:  "OUTBOUND",
-      sentAt:     new Date().toISOString(),
-      senderName: agentName,
-      pending:    true,
-    };
+    const tempId = retryId || `pending-${Date.now()}`;
 
-    // 1. Optimistic update — shows immediately
-    setMessages((prev) => [...prev, optimistic]);
-    setText("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
+    if (retryId) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId
+            ? { ...m, status: "pending", pending: true, failed: false }
+            : m
+        )
+      );
+    } else {
+      // 1. Instantly append temporary optimistic message object with 'pending' status
+      const optimistic: ChatMessage = {
+        id:         tempId,
+        body:       bodyToSend,
+        direction:  "OUTBOUND",
+        sentAt:     new Date().toISOString(),
+        senderName: agentName,
+        status:     "pending",
+        pending:    true,
+        failed:     false,
+        retryData:  { type: "text", body: bodyToSend },
+      };
+
+      setMessages((prev) => [...prev, optimistic]);
+      setText("");
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
     }
 
-    // 2. Background save — replaces temp with persisted record
+    scrollDown();
+
+    // 2. Execute background fetch to server
     (async () => {
       try {
-        const res = await sendMessage(leadId, body);
+        const res = await sendMessage(leadId, bodyToSend);
         if (!res.success) {
           const httpStatus = res.status || 500;
           const rawResponse = res.rawResponse || res.error || "Unknown server response";
@@ -188,18 +237,32 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
           setErrorMessage(`⚠ Failed to send message (HTTP ${httpStatus}): ${res.error || rawResponse}`);
           setMessages((prev) =>
             prev.map((m) =>
-              m.id === tempId ? { ...m, pending: false, failed: true } : m
+              m.id === tempId
+                ? {
+                    ...m,
+                    status: "failed",
+                    pending: false,
+                    failed: true,
+                    retryData: { type: "text", body: bodyToSend },
+                  }
+                : m
             )
           );
           setErrorId(tempId);
           return;
         }
 
+        // Server responded 200/201 -> Update specific message to 'sent'
         const saved = res.data;
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId
-              ? { ...saved, pending: false }
+              ? {
+                  ...saved,
+                  status: "sent",
+                  pending: false,
+                  failed: false,
+                }
               : m
           )
         );
@@ -214,7 +277,15 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         setErrorMessage(`⚠ Failed to send message (Status: ${httpStatus}): ${err?.message || "Check console"}`);
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === tempId ? { ...m, pending: false, failed: true } : m
+            m.id === tempId
+              ? {
+                  ...m,
+                  status: "failed",
+                  pending: false,
+                  failed: true,
+                  retryData: { type: "text", body: bodyToSend },
+                }
+              : m
           )
         );
         setErrorId(tempId);
@@ -222,24 +293,50 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
     })();
   }
 
-  async function processUpload(file: File | Blob, filename: string, mimeType: string) {
+  async function processUpload(
+    file: File | Blob,
+    filename: string,
+    mimeType: string,
+    retryId?: string
+  ) {
     setIsUploading(true);
-    const tempId = `pending-media-${Date.now()}`;
-    // Fast local object URL for instant UI preview
+    const tempId = retryId || `pending-media-${Date.now()}`;
     const localPreviewUrl = URL.createObjectURL(file);
 
-    const optimistic: ChatMessage = {
-      id:         tempId,
-      body:       filename,
-      direction:  "OUTBOUND",
-      sentAt:     new Date().toISOString(),
-      senderName: agentName,
-      pending:    true,
-      mediaUrl:   localPreviewUrl,
-      mediaType:  mimeType,
-    };
+    if (retryId) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId
+            ? {
+                ...m,
+                status: "pending",
+                pending: true,
+                failed: false,
+                mediaUrl: m.mediaUrl || localPreviewUrl,
+              }
+            : m
+        )
+      );
+    } else {
+      // 1. Instantly append temporary optimistic media object with 'pending' status
+      const optimistic: ChatMessage = {
+        id:         tempId,
+        body:       filename,
+        direction:  "OUTBOUND",
+        sentAt:     new Date().toISOString(),
+        senderName: agentName,
+        status:     "pending",
+        pending:    true,
+        failed:     false,
+        mediaUrl:   localPreviewUrl,
+        mediaType:  mimeType,
+        retryData:  { type: "media", file, filename, mimeType },
+      };
 
-    setMessages((prev) => [...prev, optimistic]);
+      setMessages((prev) => [...prev, optimistic]);
+    }
+
+    scrollDown();
 
     try {
       const cleanPhone = (leadPhone || "").replace(/\D/g, "");
@@ -338,12 +435,24 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
           error: evoData?.error,
         });
         setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${evoData?.error || rawResponse || "Check console for details"}`);
-        setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === tempId
+              ? {
+                  ...m,
+                  status: "failed",
+                  pending: false,
+                  failed: true,
+                  retryData: { type: "media", file, filename, mimeType },
+                }
+              : m
+          )
+        );
         setErrorId(tempId);
         return;
       }
 
-      // 2. Persist message record in DB via lightweight Server Action (<100 bytes metadata)
+      // 2. Server responded with 200/201 -> Update specific message to 'sent'
       let recordRes: any = null;
       try {
         const evoMetadata = {
@@ -364,13 +473,13 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
               ? {
                   ...saved,
                   mediaUrl: localPreviewUrl, // Maintain local preview for agent
+                  status: "sent",
                   pending: false,
+                  failed: false,
                 }
               : m
           )
         );
-        setErrorId(null);
-        setErrorMessage(null);
       } else {
         // Successful WhatsApp delivery with graceful optimistic update
         setMessages((prev) =>
@@ -380,14 +489,16 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
                   ...m,
                   id: evoData?.key?.id || tempId,
                   mediaUrl: localPreviewUrl,
+                  status: "sent",
                   pending: false,
+                  failed: false,
                 }
               : m
           )
         );
-        setErrorId(null);
-        setErrorMessage(null);
       }
+      setErrorId(null);
+      setErrorMessage(null);
     } catch (err: any) {
       const httpStatus = err?.status || err?.statusCode || 500;
       const rawResponse = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -400,7 +511,19 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         message: err?.message,
       });
       setErrorMessage(`⚠ Upload failed (Status: ${httpStatus}): ${err?.message || "Check console"}`);
-      setMessages((prev) => prev.map((m) => m.id === tempId ? { ...m, pending: false, failed: true } : m));
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === tempId
+            ? {
+                ...m,
+                status: "failed",
+                pending: false,
+                failed: true,
+                retryData: { type: "media", file, filename, mimeType },
+              }
+            : m
+        )
+      );
       setErrorId(tempId);
     } finally {
       setIsUploading(false);
@@ -509,6 +632,31 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
 
   const charCount = text.length;
 
+  const handleRetry = useCallback(
+    (msg: ChatMessage) => {
+      setErrorId(null);
+      setErrorMessage(null);
+      if (msg.retryData?.type === "text" && msg.retryData.body) {
+        handleSend(msg.retryData.body, msg.id);
+      } else if (
+        msg.retryData?.type === "media" &&
+        msg.retryData.file &&
+        msg.retryData.filename &&
+        msg.retryData.mimeType
+      ) {
+        processUpload(
+          msg.retryData.file,
+          msg.retryData.filename,
+          msg.retryData.mimeType,
+          msg.id
+        );
+      } else if (msg.body) {
+        handleSend(msg.body, msg.id);
+      }
+    },
+    [leadId, agentName, leadPhone, scrollDown]
+  );
+
   const renderedMessages = useMemo(() => {
     const grouped = groupByDate(messages);
     if (grouped.length === 0) {
@@ -537,6 +685,9 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         </div>
         {group.messages.map((msg) => {
           const isOut = msg.direction === "OUTBOUND";
+          const isPendingMsg = msg.status === "pending" || msg.pending;
+          const isFailedMsg = msg.status === "failed" || msg.failed;
+
           return (
             <div key={msg.id} className={`${chatStyles.bubbleWrap} ${isOut ? chatStyles.bubbleWrapOut : chatStyles.bubbleWrapIn}`}>
               
@@ -544,7 +695,7 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
                 <div className={chatStyles.inAvatar}>●</div>
               )}
 
-              <div className={`${chatStyles.bubble} ${isOut ? chatStyles.bubbleOut : chatStyles.bubbleIn} ${msg.pending ? chatStyles.bubblePending : ""} ${msg.failed ? chatStyles.bubbleFailed : ""}`}>
+              <div className={`${chatStyles.bubble} ${isOut ? chatStyles.bubbleOut : chatStyles.bubbleIn} ${isPendingMsg ? chatStyles.bubblePending : ""} ${isFailedMsg ? chatStyles.bubbleFailed : ""}`}>
                 
                 {/* Status Reply Badge */}
                 {msg.isStatusReply && (
@@ -693,9 +844,36 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
                   <span className={chatStyles.bubbleTime}>{fmtTime(msg.sentAt)}</span>
                   {isOut && (
                     <span className={chatStyles.bubbleStatus}>
-                      {msg.failed  ? "⚠ Failed"   :
-                       msg.pending ? "○ Sending…" :
-                       "✓✓"}
+                      {msg.status === "failed" || msg.failed ? (
+                        <span className={chatStyles.statusFailed}>
+                          <span>⚠ Failed</span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRetry(msg);
+                            }}
+                            className={chatStyles.retryBtn}
+                            title="Retry sending message"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                            </svg>
+                            Retry
+                          </button>
+                        </span>
+                      ) : msg.status === "pending" || msg.pending ? (
+                        <span className={chatStyles.statusClock} title="Sending…">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="12" cy="12" r="10" />
+                            <polyline points="12 6 12 12 16 14" />
+                          </svg>
+                        </span>
+                      ) : (
+                        <span className={chatStyles.statusSent} title="Sent">
+                          ✓
+                        </span>
+                      )}
                     </span>
                   )}
                 </div>
@@ -705,7 +883,7 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         })}
       </div>
     ));
-  }, [messages]);
+  }, [messages, handleRetry]);
 
   return (
     <>
@@ -852,7 +1030,7 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         </div>
 
         <button
-          onClick={handleSend}
+          onClick={() => handleSend()}
           disabled={!text.trim() || isPending}
           className={chatStyles.sendBtn}
           title="Send (Enter)"

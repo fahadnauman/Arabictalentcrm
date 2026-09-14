@@ -343,18 +343,20 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         return;
       }
 
-      // 2. Persist message record in DB via lightweight Server Action (<1KB metadata, zero large binary)
-      const evoMetadata = {
-        key: evoData?.key,
-        message: evoData?.message,
-        messageType: evoData?.messageType,
-        status: evoData?.status,
-        messageTimestamp: evoData?.messageTimestamp,
-      };
+      // 2. Persist message record in DB via lightweight Server Action (<100 bytes metadata)
+      let recordRes: any = null;
+      try {
+        const evoMetadata = {
+          key: { id: evoData?.key?.id || null },
+          keyId: evoData?.key?.id || null,
+          status: evoData?.status || "SENT",
+        };
+        recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
+      } catch (saErr) {
+        console.warn("recordOutboundMedia Server Action exception (handled gracefully):", saErr);
+      }
 
-      const recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
-
-      if (recordRes.success) {
+      if (recordRes?.success && recordRes?.data) {
         const saved: ChatMessage = recordRes.data;
         setMessages((prev) =>
           prev.map((m) =>
@@ -370,17 +372,21 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
         setErrorId(null);
         setErrorMessage(null);
       } else {
+        // Successful WhatsApp delivery with graceful optimistic update
         setMessages((prev) =>
           prev.map((m) =>
             m.id === tempId
               ? {
                   ...m,
                   id: evoData?.key?.id || tempId,
+                  mediaUrl: localPreviewUrl,
                   pending: false,
                 }
               : m
           )
         );
+        setErrorId(null);
+        setErrorMessage(null);
       }
     } catch (err: any) {
       const httpStatus = err?.status || err?.statusCode || 500;

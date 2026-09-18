@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import styles from "./admin.module.css";
+import AuditTrailModal from "./AuditTrailModal";
 
 interface ActivityItem {
   id: string;
@@ -24,6 +25,7 @@ function timeAgo(date: string | Date): string {
 
 export default function ActivityFeed({ initialItems }: { initialItems: ActivityItem[] }) {
   const [items, setItems] = useState<ActivityItem[]>(initialItems);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
 
   return (
     <div
@@ -60,9 +62,35 @@ export default function ActivityFeed({ initialItems }: { initialItems: ActivityI
             Live Lead Activity Feed
           </h3>
         </div>
-        <span style={{ fontSize: "0.75rem", color: "#8b8aa8", fontWeight: 500 }}>
-          Real-Time Audit Trail
-        </span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <button
+            type="button"
+            onClick={() => setIsAuditModalOpen(true)}
+            style={{
+              background: "rgba(32, 201, 151, 0.1)",
+              border: "1px solid rgba(32, 201, 151, 0.3)",
+              color: "#20C997",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              padding: "0.3rem 0.65rem",
+              borderRadius: "6px",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.25rem",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(32, 201, 151, 0.2)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "rgba(32, 201, 151, 0.1)";
+            }}
+          >
+            View More →
+          </button>
+        </div>
       </div>
 
       <div
@@ -143,6 +171,11 @@ export default function ActivityFeed({ initialItems }: { initialItems: ActivityI
           })
         )}
       </div>
+
+      <AuditTrailModal
+        isOpen={isAuditModalOpen}
+        onClose={() => setIsAuditModalOpen(false)}
+      />
     </div>
   );
 }

@@ -86,6 +86,7 @@ export default async function AdminDashboard() {
           <Link href="/dashboard/admin" style={{ color: "#20C997", textDecoration: "none", fontSize: "0.9rem", fontWeight: 700 }}>Dashboard</Link>
           <Link href="/dashboard/admin/leads" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Leads</Link>
           <Link href="/dashboard/admin/agents" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Agents</Link>
+          <Link href="/dashboard/admin/audit" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Audit Trail</Link>
         </nav>
 
         <div className={styles.topbarRight}>

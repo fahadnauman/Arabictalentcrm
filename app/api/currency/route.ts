@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-// Fallback exact GCC pegged exchange rates relative to AED
-const FALLBACK_RATES = {
-  AED: 1.0,
-  SAR: 1.0211, // 3.75 SAR/USD ÷ 3.6725 AED/USD
-  QAR: 0.9912, // 3.64 QAR/USD ÷ 3.6725 AED/USD
-  OMR: 0.1048, // 0.385 OMR/USD ÷ 3.6725 AED/USD
-  USD: 0.2723, // 1 ÷ 3.6725 AED/USD
+// Fallback exact GCC pegged exchange rates relative to INR (based on USD/INR ~86.50)
+const FALLBACK_RATES_IN_INR = {
+  AED: 23.55,  // 86.50 / 3.6725
+  SAR: 23.07,  // 86.50 / 3.7500
+  QAR: 23.76,  // 86.50 / 3.6400
+  OMR: 224.68, // 86.50 / 0.3850
+  USD: 86.50,
 };
 
 export async function GET() {
@@ -14,7 +14,7 @@ export async function GET() {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 3500);
 
-    const res = await fetch("https://open.er-api.com/v6/latest/AED", {
+    const res = await fetch("https://open.er-api.com/v6/latest/USD", {
       signal: controller.signal,
       next: { revalidate: 300 }, // Cache in Next.js for 5 minutes
     });
@@ -27,16 +27,24 @@ export async function GET() {
     const data = await res.json();
     const rates = data.rates || {};
 
+    const inrPerUsd = rates.INR || 86.5;
+    const aedRate = rates.AED || 3.6725;
+    const sarRate = rates.SAR || 3.75;
+    const qarRate = rates.QAR || 3.64;
+    const omrRate = rates.OMR || 0.385;
+
+    const ratesInINR = {
+      AED: Number((inrPerUsd / aedRate).toFixed(2)),
+      SAR: Number((inrPerUsd / sarRate).toFixed(2)),
+      QAR: Number((inrPerUsd / qarRate).toFixed(2)),
+      OMR: Number((inrPerUsd / omrRate).toFixed(2)),
+      USD: Number(inrPerUsd.toFixed(2)),
+    };
+
     return NextResponse.json(
       {
-        base: "AED",
-        rates: {
-          AED: 1.0,
-          SAR: rates.SAR ? Number(rates.SAR.toFixed(4)) : FALLBACK_RATES.SAR,
-          QAR: rates.QAR ? Number(rates.QAR.toFixed(4)) : FALLBACK_RATES.QAR,
-          OMR: rates.OMR ? Number(rates.OMR.toFixed(4)) : FALLBACK_RATES.OMR,
-          USD: rates.USD ? Number(rates.USD.toFixed(4)) : FALLBACK_RATES.USD,
-        },
+        base: "INR",
+        rates: ratesInINR,
         source: "live_exchange_api",
         lastUpdated: new Date().toISOString(),
       },
@@ -47,12 +55,12 @@ export async function GET() {
       }
     );
   } catch (error) {
-    console.warn("Using GCC pegged currency fallback due to error:", error);
+    console.warn("Using INR currency fallback due to error:", error);
     return NextResponse.json(
       {
-        base: "AED",
-        rates: FALLBACK_RATES,
-        source: "pegged_gcc_parity",
+        base: "INR",
+        rates: FALLBACK_RATES_IN_INR,
+        source: "pegged_inr_parity",
         lastUpdated: new Date().toISOString(),
       },
       {

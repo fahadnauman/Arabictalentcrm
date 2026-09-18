@@ -16,22 +16,23 @@ interface CurrencyData {
 }
 
 const DEFAULT_RATES: CurrencyData = {
-  base: "AED",
+  base: "INR",
   rates: {
-    AED: 1.0,
-    SAR: 1.0211,
-    QAR: 0.9912,
-    OMR: 0.1048,
-    USD: 0.2723,
+    AED: 23.55,
+    SAR: 23.07,
+    QAR: 23.76,
+    OMR: 224.68,
+    USD: 86.50,
   },
-  source: "pegged_gcc_parity",
+  source: "pegged_inr_parity",
   lastUpdated: new Date().toISOString(),
 };
 
 export default function CurrencyWidget() {
   const [data, setData] = useState<CurrencyData>(DEFAULT_RATES);
   const [loading, setLoading] = useState(false);
-  const [aedAmount, setAedAmount] = useState<string>("1000");
+  const [selectedCurrency, setSelectedCurrency] = useState<"AED" | "SAR" | "QAR" | "OMR">("AED");
+  const [gccAmount, setGccAmount] = useState<string>("1000");
 
   async function fetchRates() {
     setLoading(true);
@@ -52,28 +53,21 @@ export default function CurrencyWidget() {
     fetchRates();
   }, []);
 
-  const numAmount = parseFloat(aedAmount) || 0;
-  const convertedSAR = (numAmount * (data.rates.SAR || 1.0211)).toLocaleString("en-US", {
+  const numAmount = parseFloat(gccAmount) || 0;
+  const currentRate = data.rates[selectedCurrency] || DEFAULT_RATES.rates[selectedCurrency];
+  const convertedINR = (numAmount * currentRate).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  });
-  const convertedQAR = (numAmount * (data.rates.QAR || 0.9912)).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  const convertedOMR = (numAmount * (data.rates.OMR || 0.1048)).toLocaleString("en-US", {
-    minimumFractionDigits: 3,
-    maximumFractionDigits: 3,
   });
 
   return (
     <div
       style={{
         background: "linear-gradient(180deg, rgba(20, 24, 39, 0.7) 0%, rgba(10, 14, 26, 0.7) 100%)",
-        border: "1px solid rgba(32, 201, 151, 0.2)",
+        border: "1px solid rgba(250, 204, 21, 0.25)",
         borderRadius: "16px",
         padding: "1.5rem",
-        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.3), 0 0 20px rgba(32, 201, 151, 0.05)",
+        boxShadow: "0 10px 30px rgba(0, 0, 0, 0.3), 0 0 20px rgba(250, 204, 21, 0.05)",
       }}
     >
       {/* Header */}
@@ -88,13 +82,13 @@ export default function CurrencyWidget() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-          <span style={{ fontSize: "1.2rem" }}>🪙</span>
+          <span style={{ fontSize: "1.25rem" }}>🇮🇳</span>
           <div>
             <h3 style={{ margin: 0, fontSize: "1.05rem", color: "#f1f0ff", fontWeight: 700 }}>
-              GCC Currency Exchange Matrix
+              GCC to INR Currency Matrix
             </h3>
-            <span style={{ fontSize: "0.72rem", color: "#20C997", fontWeight: 600 }}>
-              Primary Baseline: 🇦🇪 UAE Dirham (AED)
+            <span style={{ fontSize: "0.72rem", color: "#facc15", fontWeight: 600 }}>
+              Base Comparison Currency: Indian Rupee (INR ₹)
             </span>
           </div>
         </div>
@@ -121,7 +115,7 @@ export default function CurrencyWidget() {
         </button>
       </div>
 
-      {/* Baseline & Rates Cards */}
+      {/* GCC Exchange Rates Directly Against INR */}
       <div
         style={{
           display: "grid",
@@ -130,7 +124,7 @@ export default function CurrencyWidget() {
           marginBottom: "1.25rem",
         }}
       >
-        {/* Baseline AED */}
+        {/* AED to INR */}
         <div
           style={{
             background: "rgba(32, 201, 151, 0.08)",
@@ -142,14 +136,14 @@ export default function CurrencyWidget() {
         >
           <div style={{ fontSize: "1.2rem", marginBottom: "0.2rem" }}>🇦🇪</div>
           <div style={{ fontSize: "0.72rem", color: "#8b8aa8", textTransform: "uppercase", fontWeight: 700 }}>
-            UAE Baseline
+            UAE Dirham
           </div>
-          <div style={{ color: "#20C997", fontSize: "1.15rem", fontWeight: 800, marginTop: "2px" }}>
-            1.00 AED
+          <div style={{ color: "#20C997", fontSize: "1.1rem", fontWeight: 800, marginTop: "2px" }}>
+            1 AED = ₹{data.rates.AED.toFixed(2)}
           </div>
         </div>
 
-        {/* Saudi Riyal (SAR) */}
+        {/* SAR to INR */}
         <div
           style={{
             background: "rgba(255, 255, 255, 0.02)",
@@ -163,12 +157,12 @@ export default function CurrencyWidget() {
           <div style={{ fontSize: "0.72rem", color: "#8b8aa8", textTransform: "uppercase", fontWeight: 700 }}>
             Saudi Riyal
           </div>
-          <div style={{ color: "#f1f0ff", fontSize: "1.15rem", fontWeight: 800, marginTop: "2px" }}>
-            {data.rates.SAR.toFixed(4)} <span style={{ fontSize: "0.75rem", color: "#8b8aa8" }}>SAR</span>
+          <div style={{ color: "#f1f0ff", fontSize: "1.1rem", fontWeight: 800, marginTop: "2px" }}>
+            1 SAR = ₹{data.rates.SAR.toFixed(2)}
           </div>
         </div>
 
-        {/* Qatari Riyal (QAR) */}
+        {/* QAR to INR */}
         <div
           style={{
             background: "rgba(255, 255, 255, 0.02)",
@@ -182,12 +176,12 @@ export default function CurrencyWidget() {
           <div style={{ fontSize: "0.72rem", color: "#8b8aa8", textTransform: "uppercase", fontWeight: 700 }}>
             Qatari Riyal
           </div>
-          <div style={{ color: "#f1f0ff", fontSize: "1.15rem", fontWeight: 800, marginTop: "2px" }}>
-            {data.rates.QAR.toFixed(4)} <span style={{ fontSize: "0.75rem", color: "#8b8aa8" }}>QAR</span>
+          <div style={{ color: "#f1f0ff", fontSize: "1.1rem", fontWeight: 800, marginTop: "2px" }}>
+            1 QAR = ₹{data.rates.QAR.toFixed(2)}
           </div>
         </div>
 
-        {/* Omani Rial (OMR) */}
+        {/* OMR to INR */}
         <div
           style={{
             background: "rgba(255, 255, 255, 0.02)",
@@ -201,40 +195,71 @@ export default function CurrencyWidget() {
           <div style={{ fontSize: "0.72rem", color: "#8b8aa8", textTransform: "uppercase", fontWeight: 700 }}>
             Omani Rial
           </div>
-          <div style={{ color: "#f1f0ff", fontSize: "1.15rem", fontWeight: 800, marginTop: "2px" }}>
-            {data.rates.OMR.toFixed(4)} <span style={{ fontSize: "0.75rem", color: "#8b8aa8" }}>OMR</span>
+          <div style={{ color: "#f1f0ff", fontSize: "1.1rem", fontWeight: 800, marginTop: "2px" }}>
+            1 OMR = ₹{data.rates.OMR.toFixed(2)}
           </div>
         </div>
       </div>
 
-      {/* Interactive Quick Deal Calculator */}
+      {/* Interactive GCC-to-INR Deal Converter */}
       <div
         style={{
           background: "rgba(0, 0, 0, 0.25)",
-          border: "1px solid rgba(255, 255, 255, 0.06)",
+          border: "1px solid rgba(250, 204, 21, 0.2)",
           borderRadius: "12px",
           padding: "1rem",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.75rem" }}>
-          <span style={{ fontSize: "0.78rem", color: "#8b8aa8", fontWeight: 600 }}>
-            Live Deal Converter (AED Input):
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "0.75rem",
+            marginBottom: "0.85rem",
+          }}
+        >
+          <span style={{ fontSize: "0.8rem", color: "#8b8aa8", fontWeight: 600 }}>
+            GCC to INR Deal Converter:
           </span>
+
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ color: "#20C997", fontWeight: 700, fontSize: "0.85rem" }}>AED</span>
+            {/* Currency Selector */}
+            <select
+              value={selectedCurrency}
+              onChange={(e) => setSelectedCurrency(e.target.value as any)}
+              style={{
+                padding: "0.35rem 0.6rem",
+                background: "#0d1322",
+                border: "1px solid rgba(250, 204, 21, 0.3)",
+                borderRadius: "6px",
+                color: "#facc15",
+                fontSize: "0.85rem",
+                fontWeight: 700,
+                outline: "none",
+              }}
+            >
+              <option value="AED">🇦🇪 AED</option>
+              <option value="SAR">🇸🇦 SAR</option>
+              <option value="QAR">🇶🇦 QAR</option>
+              <option value="OMR">🇴🇲 OMR</option>
+            </select>
+
+            {/* Amount input */}
             <input
               type="number"
-              value={aedAmount}
-              onChange={(e) => setAedAmount(e.target.value)}
+              value={gccAmount}
+              onChange={(e) => setGccAmount(e.target.value)}
               placeholder="1000"
               style={{
-                width: "110px",
-                padding: "0.35rem 0.6rem",
+                width: "120px",
+                padding: "0.35rem 0.65rem",
                 background: "rgba(255, 255, 255, 0.05)",
-                border: "1px solid rgba(32, 201, 151, 0.3)",
+                border: "1px solid rgba(250, 204, 21, 0.3)",
                 borderRadius: "6px",
                 color: "#f1f0ff",
-                fontSize: "0.88rem",
+                fontSize: "0.9rem",
                 fontWeight: 700,
                 textAlign: "right",
                 outline: "none",
@@ -243,33 +268,23 @@ export default function CurrencyWidget() {
           </div>
         </div>
 
+        {/* Calculated Value in INR */}
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: "0.5rem",
-            textAlign: "center",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.75rem 1rem",
+            background: "rgba(250, 204, 21, 0.08)",
+            borderRadius: "8px",
+            border: "1px solid rgba(250, 204, 21, 0.25)",
           }}
         >
-          <div style={{ padding: "0.5rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px" }}>
-            <div style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>Saudi Arabia</div>
-            <div style={{ color: "#f1f0ff", fontWeight: 700, fontSize: "0.95rem", marginTop: "2px" }}>
-              {convertedSAR} <span style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>SAR</span>
-            </div>
+          <div style={{ fontSize: "0.85rem", color: "#facc15", fontWeight: 700 }}>
+            {numAmount.toLocaleString()} {selectedCurrency} Equals:
           </div>
-
-          <div style={{ padding: "0.5rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px" }}>
-            <div style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>Qatar</div>
-            <div style={{ color: "#f1f0ff", fontWeight: 700, fontSize: "0.95rem", marginTop: "2px" }}>
-              {convertedQAR} <span style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>QAR</span>
-            </div>
-          </div>
-
-          <div style={{ padding: "0.5rem", background: "rgba(255, 255, 255, 0.02)", borderRadius: "8px" }}>
-            <div style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>Oman</div>
-            <div style={{ color: "#f1f0ff", fontWeight: 700, fontSize: "0.95rem", marginTop: "2px" }}>
-              {convertedOMR} <span style={{ fontSize: "0.7rem", color: "#8b8aa8" }}>OMR</span>
-            </div>
+          <div style={{ fontSize: "1.35rem", color: "#f1f0ff", fontWeight: 800, letterSpacing: "-0.02em" }}>
+            ₹ {convertedINR} <span style={{ fontSize: "0.8rem", color: "#facc15" }}>INR</span>
           </div>
         </div>
       </div>

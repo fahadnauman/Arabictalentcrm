@@ -5,7 +5,8 @@ import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getAgentAnalytics } from "@/lib/queries/agent";
 import styles from "../../admin.module.css";
-import AgentStatusToggle from "./AgentStatusToggle";
+import AgentHeaderControls from "./AgentHeaderControls";
+import AgentPortfolioTable from "./AgentPortfolioTable";
 
 const STATUS_META: Record<string, { label: string; pill: string }> = {
   NEW_LEAD:       { label: "New Lead",       pill: styles.pillNew  },
@@ -32,14 +33,21 @@ export default async function AgentPortfolioPage({ params }: { params: Promise<{
   const { agentId } = await params;
 
   // Fetch agent details and all assigned leads
-  const agent = await prisma.user.findUnique({
-    where: { id: agentId },
-    include: {
-      assignedLeads: {
-        orderBy: { createdAt: "desc" }
+  const [agent, allAgents] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: agentId },
+      include: {
+        assignedLeads: {
+          orderBy: { createdAt: "desc" }
+        }
       }
-    }
-  });
+    }),
+    prisma.user.findMany({
+      where: { role: "AGENT", isActive: true },
+      select: { id: true, name: true, email: true, languageGroup: true },
+      orderBy: { name: "asc" },
+    }),
+  ]);
 
   if (!agent || agent.role !== "AGENT") {
     return <div style={{ padding: "2rem", color: "white" }}>Agent not found.</div>;
@@ -118,7 +126,16 @@ export default async function AgentPortfolioPage({ params }: { params: Promise<{
           </div>
           
           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "1rem" }}>
-            <AgentStatusToggle agentId={agent.id} initialStatus={agent.isActive} />
+            <AgentHeaderControls
+              agent={{
+                id: agent.id,
+                name: agent.name,
+                email: agent.email,
+                phone: agent.phone,
+                languageGroup: agent.languageGroup,
+                isActive: agent.isActive,
+              }}
+            />
           </div>
         </div>
 
@@ -156,62 +173,21 @@ export default async function AgentPortfolioPage({ params }: { params: Promise<{
 
         {/* Assigned Leads Table */}
         <h2 style={{ fontSize: "1.2rem", color: "#f1f0ff", marginTop: "2.5rem", marginBottom: "1rem" }}>Assigned Leads Portfolio</h2>
-        <div className={styles.tablePanel}>
-          <div className={styles.tableScroll}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Lead Details</th>
-                  <th>Contact Info</th>
-                  <th>Status</th>
-                  <th>Deal Value</th>
-                  <th>Added On</th>
-                </tr>
-              </thead>
-              <tbody>
-                {agent.assignedLeads.length === 0 ? (
-                  <tr className={styles.emptyRow}>
-                    <td colSpan={5}>No leads assigned yet.</td>
-                  </tr>
-                ) : (
-                  agent.assignedLeads.map((lead) => {
-                    const meta = STATUS_META[lead.status] || STATUS_META.NEW_LEAD;
-                    return (
-                      <tr key={lead.id}>
-                        <td>
-                          <Link href={`/dashboard/portfolio/${lead.id}`} style={{ textDecoration: "none" }}>
-                            <div className={styles.leadName} style={{ color: "#20C997", cursor: "pointer" }}>{lead.name}</div>
-                          </Link>
-                          {lead.profession && <div className={styles.leadPhone} style={{ fontSize: "0.7rem", marginTop: "2px" }}>💼 {lead.profession}</div>}
-                          {lead.country && <div className={styles.leadPhone} style={{ fontSize: "0.7rem" }}>🌍 {lead.country}</div>}
-                        </td>
-                        <td>
-                          <div className={styles.leadPhone}>{lead.phone}</div>
-                          {lead.email && <div className={styles.leadPhone} style={{ fontSize: "0.7rem" }}>{lead.email}</div>}
-                        </td>
-                        <td>
-                          <span className={`${styles.pill} ${meta.pill}`}>
-                            {meta.label}
-                          </span>
-                        </td>
-                        <td>
-                          {lead.dealValueCents ? (
-                            <span style={{ color: "#20C997", fontWeight: 700 }}>
-                              AED {(Number(lead.dealValueCents) / 100).toLocaleString("en-AE")}
-                            </span>
-                          ) : (
-                            <span style={{ color: "#4e4d6a" }}>-</span>
-                          )}
-                        </td>
-                        <td>{formatDate(lead.createdAt)}</td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        <AgentPortfolioTable
+          leads={agent.assignedLeads.map(l => ({
+            id: l.id,
+            name: l.name,
+            phone: l.phone,
+            email: l.email,
+            profession: l.profession,
+            country: l.country,
+            status: l.status,
+            dealValueCents: l.dealValueCents ? l.dealValueCents.toString() : null,
+            createdAt: l.createdAt,
+          }))}
+          currentAgentId={agent.id}
+          availableAgents={allAgents}
+        />
 
       </main>
     </div>

@@ -2,7 +2,10 @@ import { cookies }               from "next/headers";
 import { redirect }              from "next/navigation";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import { getAgentStats }         from "@/lib/queries/agent";
-import { getActiveSession, clockIn, clockOut } from "@/app/actions/session";
+import { getAgentTodayAttendance } from "@/app/actions/attendance";
+import { getAgentTasks }           from "@/app/actions/task";
+import AttendanceControls          from "./AttendanceControls";
+import AgentTaskPanel              from "./AgentTaskPanel";
 import AgentBottomNav            from "./BottomNav";
 import styles from "./agent.module.css";
 
@@ -40,9 +43,11 @@ export default async function AgentHomePage() {
   const user = await verifyToken(token);
   if (!user || user.role !== "AGENT") redirect("/login");
 
-  const stats   = await getAgentStats(user.id);
-  const activeSession = await getActiveSession(user.id);
-  const isClockedIn = !!activeSession;
+  const [stats, todayAttendance, tasks] = await Promise.all([
+    getAgentStats(user.id),
+    getAgentTodayAttendance(user.id),
+    getAgentTasks(user.id),
+  ]);
 
   const winRate = stats.totalLeads > 0
     ? Math.round((stats.closedLeads / stats.totalLeads) * 100)
@@ -57,20 +62,18 @@ export default async function AgentHomePage() {
           <img src="/logo.png" alt="Arabic Talent" style={{ height: 32, width: "auto", objectFit: "contain" }} />
         </div>
         <div className={styles.topbarRight} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-          <form action={async () => {
-            "use server";
-            if (isClockedIn) await clockOut();
-            else await clockIn();
-          }}>
-            <button type="submit" style={{
-              padding: "0.4rem 0.8rem", borderRadius: "20px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer",
-              background: isClockedIn ? "rgba(248,113,113,0.15)" : "rgba(32,201,151,0.15)",
-              color: isClockedIn ? "#f87171" : "#20C997",
-              border: `1px solid ${isClockedIn ? "rgba(248,113,113,0.4)" : "rgba(32,201,151,0.4)"}`
-            }}>
-              {isClockedIn ? "Clock Out" : "Clock In"}
-            </button>
-          </form>
+          <AttendanceControls
+            initialAttendance={
+              todayAttendance
+                ? {
+                    id: todayAttendance.id,
+                    status: todayAttendance.status,
+                    clockIn: todayAttendance.clockIn,
+                    breakStart: todayAttendance.breakStart,
+                  }
+                : null
+            }
+          />
           <span className={styles.agentBadge}>◈ {user.name}</span>
           <form action="/api/auth/logout" method="POST">
             <button type="submit" className={styles.logoutBtn}>Out</button>
@@ -125,6 +128,9 @@ export default async function AgentHomePage() {
             );
           })}
         </div>
+
+        {/* ── Directives & Task Assignment Panel ──────────────────── */}
+        <AgentTaskPanel initialTasks={tasks} agentId={user.id} />
       </div>
 
       {/* ── Shared bottom nav (3 tabs) ──────────────────────────── */}

@@ -104,6 +104,15 @@ model User {
   /// Work sessions (clock-in/out) for analytics.
   sessions      AgentSession[]
 
+  /// Internal task assignments sent by this admin.
+  tasksSent     TaskAssignment[] @relation("TasksSent")
+
+  /// Internal task assignments received by this agent.
+  tasksReceived TaskAssignment[] @relation("TasksReceived")
+
+  /// Time and attendance logs.
+  attendances   Attendance[]
+
   @@map("users")
 }
 
@@ -413,4 +422,59 @@ model AuditLog {
   @@index([entityType, entityId])
   @@index([occurredAt])
   @@map("audit_logs")
+}
+
+// ============================================================
+// TASK ASSIGNMENT / INTERNAL COMMUNICATIONS
+// ============================================================
+
+model TaskAssignment {
+  id          String    @id @default(cuid())
+  title       String?
+  message     String    @db.Text
+  priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
+  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  
+  senderId    String
+  sender      User      @relation("TasksSent", fields: [senderId], references: [id], onDelete: Cascade)
+  
+  receiverId  String?
+  receiver    User?     @relation("TasksReceived", fields: [receiverId], references: [id], onDelete: SetNull)
+  
+  isBroadcast Boolean   @default(false)
+  dueDate     DateTime?
+  completedAt DateTime?
+  
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([receiverId, createdAt(sort: Desc)])
+  @@index([senderId])
+  @@map("task_assignments")
+}
+
+// ============================================================
+// TIME & ATTENDANCE TRACKING
+// ============================================================
+
+model Attendance {
+  id                String    @id @default(cuid())
+  agentId           String
+  agent             User      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  date              DateTime  @db.Date
+  clockIn           DateTime  @default(now())
+  clockOut          DateTime?
+  breakStart        DateTime?
+  breakEnd          DateTime?
+  totalBreakMinutes Int       @default(0)
+  totalWorkMinutes  Int       @default(0)
+  status            String    @default("CLOCKED_IN") // CLOCKED_IN, ON_BREAK, CLOCKED_OUT
+  notes             String?
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([agentId, date])
+  @@index([date])
+  @@map("attendances")
 }

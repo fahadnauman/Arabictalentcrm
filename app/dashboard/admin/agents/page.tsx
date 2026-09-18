@@ -98,12 +98,13 @@ export default async function AgentsDirectoryPage() {
                   <th>Assigned Leads</th>
                   <th>Closed Deals</th>
                   <th>Total Revenue</th>
+                  <th style={{ textAlign: "right" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {agentList.length === 0 ? (
                   <tr className={styles.emptyRow}>
-                    <td colSpan={6}>No agents created yet.</td>
+                    <td colSpan={7}>No agents created yet.</td>
                   </tr>
                 ) : (
                   agentList.map((agent) => (
@@ -169,6 +170,24 @@ export default async function AgentsDirectoryPage() {
                         ) : (
                           <span style={{ color: "#4e4d6a" }}>-</span>
                         )}
+                      </td>
+                      <td style={{ textAlign: "right" }}>
+                        <Link
+                          href={`/dashboard/admin/agents/${agent.id}`}
+                          style={{
+                            padding: "0.35rem 0.75rem",
+                            borderRadius: "6px",
+                            background: "rgba(255, 255, 255, 0.05)",
+                            border: "1px solid rgba(255, 255, 255, 0.15)",
+                            color: "#f1f0ff",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                            textDecoration: "none",
+                            display: "inline-block",
+                          }}
+                        >
+                          ✎ Edit & Manage →
+                        </Link>
                       </td>
                     </tr>
                   ))

@@ -60,6 +60,25 @@ export async function getNextAgentInRotation(preferredLanguage?: string): Promis
   const targetLanguage = (preferredLanguage || "ENGLISH").toUpperCase();
 
   return prisma.$transaction(async (tx) => {
+    // 0 — Auto-sync: Guarantee all active agents have a RoundRobinQueue entry
+    const unqueuedAgents = await tx.user.findMany({
+      where: {
+        role: "AGENT",
+        rrqueueSlot: null,
+      },
+      select: { id: true, isActive: true },
+    });
+
+    for (const u of unqueuedAgents) {
+      await tx.roundRobinQueue.create({
+        data: {
+          agentId: u.id,
+          isActive: u.isActive,
+          lastAssignedAt: new Date(0),
+        },
+      });
+    }
+
     // 1 — Find the next eligible agent exclusively within the target language pool
     let slot = await tx.roundRobinQueue.findFirst({
       where:   { 

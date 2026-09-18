@@ -148,3 +148,67 @@ export async function getAdminStats(): Promise<AdminStats> {
     agentPerformance,
   };
 }
+
+export interface ActivityFeedItem {
+  id: string;
+  type: "TRANSFER" | "ASSIGNMENT" | "TASK" | "SYSTEM";
+  message: string;
+  actorName: string;
+  occurredAt: Date;
+  metadata?: any;
+}
+
+export async function getRecentActivityFeed(limit = 12): Promise<ActivityFeedItem[]> {
+  const [auditLogs, leadAssignments] = await Promise.all([
+    prisma.auditLog.findMany({
+      where: {
+        action: { in: ["lead.transferred", "lead.assigned", "task.assigned"] }
+      },
+      orderBy: { occurredAt: "desc" },
+      take: limit,
+    }),
+    prisma.leadAssignment.findMany({
+      orderBy: { assignedAt: "desc" },
+      take: limit,
+      include: {
+        lead: { select: { name: true, phone: true } },
+      }
+    })
+  ]);
+
+  const items: ActivityFeedItem[] = [];
+
+  for (const log of auditLogs) {
+    const meta = (log.metadata || {}) as any;
+    if (log.action === "lead.transferred") {
+      const from = meta.fromAgentName || "Unassigned";
+      const to = meta.toAgentName || "Agent";
+      const lead = meta.leadName || "Lead";
+      const actor = meta.actorName || "Admin";
+      items.push({
+        id: log.id,
+        type: "TRANSFER",
+        message: `${actor} transferred Lead ${lead} from ${from} to ${to}`,
+        actorName: actor,
+        occurredAt: log.occurredAt,
+        metadata: meta,
+      });
+    }
+  }
+
+  // Fall back to lead assignment logs if no manual transfers recorded yet
+  if (items.length === 0) {
+    for (const assign of leadAssignments) {
+      items.push({
+        id: assign.id,
+        type: "ASSIGNMENT",
+        message: `${assign.assignedBy || "Round-Robin"} routed Lead ${assign.lead?.name || "New Contact"} to agent queue`,
+        actorName: assign.assignedBy || "System",
+        occurredAt: assign.assignedAt,
+        metadata: { leadName: assign.lead?.name },
+      });
+    }
+  }
+
+  return items.sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime()).slice(0, limit);
+}

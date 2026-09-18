@@ -193,7 +193,13 @@ export async function transferLead(leadId: string, targetAgentId: string) {
 
   const lead = await prisma.lead.findFirst({
     where: filter,
-    select: { id: true, name: true, assignedAgentId: true },
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      assignedAgentId: true,
+      assignedAgent: { select: { id: true, name: true } },
+    },
   });
 
   if (!lead) {
@@ -222,10 +228,37 @@ export async function transferLead(leadId: string, targetAgentId: string) {
     console.warn("Failed to record lead assignment log:", logErr);
   }
 
+  // Log to AuditLog for enterprise activity feed
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "lead.transferred",
+        entityType: "Lead",
+        entityId: lead.id,
+        metadata: {
+          leadName: lead.name,
+          leadPhone: lead.phone,
+          fromAgentId: lead.assignedAgentId,
+          fromAgentName: lead.assignedAgent?.name || "Unassigned",
+          toAgentId: targetAgent.id,
+          toAgentName: targetAgent.name,
+          actorName: user.name,
+          actorRole: user.role,
+        },
+      },
+    });
+  } catch (auditErr) {
+    console.warn("Failed to record audit log for transfer:", auditErr);
+  }
+
   revalidatePath(`/dashboard/agent/chat/${leadId}`);
   revalidatePath("/dashboard/agent/inbox");
   revalidatePath("/dashboard/agent");
+  revalidatePath("/dashboard/admin");
   revalidatePath("/dashboard/admin/leads");
+  revalidatePath(`/dashboard/admin/agents/${lead.assignedAgentId || ""}`);
+  revalidatePath(`/dashboard/admin/agents/${targetAgent.id}`);
   revalidatePath(`/dashboard/portfolio/${leadId}`);
 
   return {

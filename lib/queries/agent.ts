@@ -55,6 +55,16 @@ export async function getAgentLeads(agentId: string) {
       dealValueCents: true,
       createdAt:      true,
       updatedAt:      true,
+      followUps: {
+        where: { status: "PENDING" },
+        orderBy: { scheduledAt: "asc" },
+        take: 1,
+        select: {
+          id: true,
+          scheduledAt: true,
+          note: true,
+        },
+      },
     },
   });
 }

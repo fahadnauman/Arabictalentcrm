@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { createPortal }                       from "react-dom";
 import { closeDeal }                          from "@/app/actions/lead";
 import { PaymentStatus }                      from "@prisma/client";
 
@@ -14,14 +15,15 @@ interface Props {
 const COURSE_OPTIONS = [
   "Standard Arabic",
   "Business Arabic",
+  "Conversational Arabic",
   "Quranic Arabic",
   "Kids Arabic",
-  "Conversational Arabic",
   "Advanced Arabic",
   "Custom / Other",
 ];
 
 export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: Props) {
+  const [mounted,       setMounted]       = useState(false);
   const [courseType,    setCourseType]    = useState(COURSE_OPTIONS[0]);
   const [customCourse,  setCustomCourse]  = useState("");
   const [amountAED,     setAmountAED]     = useState("");
@@ -30,6 +32,7 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
   const [isPending,     startTx]          = useTransition();
 
   useEffect(() => {
+    setMounted(true);
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -58,15 +61,20 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
     });
   }
 
-  return (
-    /* Centered Backdrop */
+  if (!mounted) return null;
+
+  return createPortal(
+    /* Centered Viewport Overlay with Dimmed Backdrop */
     <div
       onClick={(e) => e.target === e.currentTarget && onClose()}
       style={{
-        position: "fixed", inset: 0, zIndex: 200,
-        background: "rgba(0,0,0,0.8)",
-        backdropFilter: "blur(6px)",
-        display: "grid", placeItems: "center",
+        position: "fixed",
+        inset: 0,
+        zIndex: 99999,
+        background: "rgba(3, 6, 16, 0.88)",
+        backdropFilter: "blur(10px)",
+        display: "grid",
+        placeItems: "center",
         padding: "1rem",
       }}
     >
@@ -168,7 +176,8 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
           to   { opacity: 1; transform: scale(1) translateY(0); }
         }
       `}</style>
-    </div>
+    </div>,
+    document.body
   );
 }
 

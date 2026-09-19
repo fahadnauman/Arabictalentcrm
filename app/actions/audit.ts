@@ -91,9 +91,9 @@ export async function getFullAuditTrail({
 
   // 3. Collect historical audit events across tables
   const [transfers, statusHistories, tasks, leadAssignments] = await Promise.all([
-    // Transfers from AuditLog
+    // Transfers & Closed Deals from AuditLog
     prisma.auditLog.findMany({
-      where: { action: "lead.transferred" },
+      where: { action: { in: ["lead.transferred", "lead.deal_closed"] } },
       orderBy: { occurredAt: "desc" },
       take: 150,
     }),
@@ -143,25 +143,45 @@ export async function getFullAuditTrail({
     }
   }
 
-  // Add manual transfers
+  // Add manual transfers and closed sales from AuditLog
   for (const t of transfers) {
     const meta = (t.metadata || {}) as any;
-    const lead = meta.leadName || "Customer Lead";
-    const from = meta.fromAgentName || "Unassigned";
-    const to = meta.toAgentName || "Agent";
-    const actor = meta.actorName || "Admin";
 
-    allEvents.push({
-      id: t.id,
-      eventType: "TRANSFER",
-      title: `${actor} transferred ${lead} to ${to}`,
-      description: `Manual override reassigned lead from ${from} to ${to}. Contact: ${meta.leadPhone || "N/A"}.`,
-      actor,
-      timestamp: t.occurredAt,
-      badgeColor: "#20C997",
-      badgeText: "Transfer",
-      metadata: meta,
-    });
+    if (t.action === "lead.deal_closed") {
+      const actor = meta.agentName || "Agent";
+      const lead = meta.leadName || "Lead";
+      const course = meta.courseType || "Course";
+      const amount = meta.amountAED ? `AED ${Number(meta.amountAED).toLocaleString("en-AE")}` : "";
+
+      allEvents.push({
+        id: t.id,
+        eventType: "STATUS_CHANGE",
+        title: `Deal Closed: ${lead} (${course})`,
+        description: `${actor} closed deal for ${lead} with course "${course}" for ${amount}. Payment status: ${meta.paymentStatus || "FULL"}.`,
+        actor,
+        timestamp: t.occurredAt,
+        badgeColor: "#20C997",
+        badgeText: "Closed Sale",
+        metadata: meta,
+      });
+    } else {
+      const lead = meta.leadName || "Customer Lead";
+      const from = meta.fromAgentName || "Unassigned";
+      const to = meta.toAgentName || "Agent";
+      const actor = meta.actorName || "Admin";
+
+      allEvents.push({
+        id: t.id,
+        eventType: "TRANSFER",
+        title: `${actor} transferred ${lead} to ${to}`,
+        description: `Manual override reassigned lead from ${from} to ${to}. Contact: ${meta.leadPhone || "N/A"}.`,
+        actor,
+        timestamp: t.occurredAt,
+        badgeColor: "#20C997",
+        badgeText: "Transfer",
+        metadata: meta,
+      });
+    }
   }
 
   // Add pipeline status changes

@@ -22,26 +22,33 @@ export interface CreateTaskInput {
 
 export async function createTask(input: CreateTaskInput) {
   const user = await getAuthUser();
-  if (!user || user.role !== "ADMIN") {
-    throw new Error("Unauthorized. Only administrators can assign tasks.");
+  if (!user) {
+    throw new Error("Unauthorized. Please log in to create tasks.");
   }
 
   if (!input.message || !input.message.trim()) {
     throw new Error("Task message cannot be empty.");
   }
 
-  const isBroadcast = input.receiverId === "ALL" || !input.receiverId;
+  let isBroadcast = false;
   let targetReceiverId: string | null = null;
 
-  if (!isBroadcast) {
-    const targetAgent = await prisma.user.findUnique({
-      where: { id: input.receiverId },
-      select: { id: true, role: true, name: true },
-    });
-    if (!targetAgent || targetAgent.role !== "AGENT") {
-      throw new Error("Selected agent does not exist.");
+  if (user.role === "ADMIN") {
+    isBroadcast = input.receiverId === "ALL" || !input.receiverId;
+    if (!isBroadcast) {
+      const targetAgent = await prisma.user.findUnique({
+        where: { id: input.receiverId },
+        select: { id: true, role: true, name: true },
+      });
+      if (!targetAgent) {
+        throw new Error("Selected agent does not exist.");
+      }
+      targetReceiverId = targetAgent.id;
     }
-    targetReceiverId = targetAgent.id;
+  } else {
+    // Counselors assign tasks to themselves
+    targetReceiverId = user.id;
+    isBroadcast = false;
   }
 
   const task = await prisma.taskAssignment.create({
@@ -66,14 +73,16 @@ export async function createTask(input: CreateTaskInput) {
     await prisma.auditLog.create({
       data: {
         actorId: user.id,
-        action: "task.assigned",
+        action: user.role === "ADMIN" ? "task.assigned" : "task.self_assigned",
         entityType: "TaskAssignment",
         entityId: task.id,
         metadata: {
+          taskTitle: task.title,
           taskMessage: task.message,
           isBroadcast,
-          receiverName: isBroadcast ? "All Agents" : task.receiver?.name,
+          receiverName: isBroadcast ? "All Agents" : task.receiver?.name || "Self",
           priority: task.priority,
+          dueDate: task.dueDate ? task.dueDate.toISOString() : null,
         },
       },
     });
@@ -88,11 +97,13 @@ export async function createTask(input: CreateTaskInput) {
     success: true,
     task: {
       id: task.id,
+      title: task.title,
       message: task.message,
       priority: task.priority,
       status: task.status,
       isBroadcast: task.isBroadcast,
       receiverName: isBroadcast ? "All Agents" : task.receiver?.name || "Agent",
+      dueDate: task.dueDate,
       createdAt: task.createdAt,
     },
   };
@@ -120,6 +131,7 @@ export async function getAdminRecentTasks(limit = 8) {
     isBroadcast: t.isBroadcast,
     receiverName: t.isBroadcast ? "All Agents" : t.receiver?.name || "Agent",
     senderName: t.sender?.name || "Admin",
+    dueDate: t.dueDate,
     createdAt: t.createdAt,
     completedAt: t.completedAt,
   }));
@@ -137,7 +149,7 @@ export async function getAgentTasks(agentId: string) {
       ],
     },
     orderBy: { createdAt: "desc" },
-    take: 20,
+    take: 25,
     include: {
       sender: { select: { id: true, name: true } },
     },
@@ -151,6 +163,7 @@ export async function getAgentTasks(agentId: string) {
     status: t.status,
     isBroadcast: t.isBroadcast,
     senderName: t.sender?.name || "Admin",
+    dueDate: t.dueDate,
     createdAt: t.createdAt,
     completedAt: t.completedAt,
   }));

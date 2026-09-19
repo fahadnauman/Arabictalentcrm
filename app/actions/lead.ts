@@ -57,7 +57,7 @@ export async function closeDeal(leadId: string, data: CloseDealInput) {
 
   const now = new Date();
 
-  await prisma.lead.update({
+  const updatedLead = await prisma.lead.update({
     where: filter,
     data:  {
       status:          LeadStatus.CLOSED,
@@ -70,10 +70,48 @@ export async function closeDeal(leadId: string, data: CloseDealInput) {
     },
   });
 
-  // Revalidate agent home so revenue hero updates on next visit
+  // Explicitly log into AuditLog for ActivityFeed & Audit Trail
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "lead.deal_closed",
+        entityType: "Lead",
+        entityId: updatedLead.id,
+        metadata: {
+          leadId: updatedLead.id,
+          leadName: updatedLead.name,
+          leadPhone: updatedLead.phone,
+          courseType: data.courseType.trim(),
+          amountAED: data.amountAED,
+          paymentStatus: data.paymentStatus,
+          agentName: user.name || "Counselor",
+        },
+      },
+    });
+  } catch (auditErr) {
+    console.warn("Failed to create audit log for closed deal:", auditErr);
+  }
+
+  // Also record in lead status history
+  try {
+    await prisma.leadStatusHistory.create({
+      data: {
+        leadId: updatedLead.id,
+        toStatus: LeadStatus.CLOSED,
+        changedById: user.id,
+        note: `Deal closed: ${data.courseType.trim()} (AED ${data.amountAED} - ${data.paymentStatus})`,
+      },
+    });
+  } catch (histErr) {
+    console.warn("Failed to create status history for closed deal:", histErr);
+  }
+
+  // Revalidate agent home and admin dashboard so revenue & activity feed update
   revalidatePath("/dashboard/agent");
   revalidatePath("/dashboard/agent/inbox");
   revalidatePath(`/dashboard/agent/chat/${leadId}`);
+  revalidatePath("/dashboard/admin");
 }
 
 // ── Update lead info (from the Lead Info Panel) ───────────────────────────

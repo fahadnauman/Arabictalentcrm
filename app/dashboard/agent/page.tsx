@@ -4,8 +4,10 @@ import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import { getAgentStats }         from "@/lib/queries/agent";
 import { getAgentTodayAttendance } from "@/app/actions/attendance";
 import { getAgentTasks }           from "@/app/actions/task";
+import { getAgentFollowUps }       from "@/app/actions/followup";
 import AttendanceControls          from "./AttendanceControls";
 import AgentTaskPanel              from "./AgentTaskPanel";
+import DailyBriefingModal          from "./DailyBriefingModal";
 import AgentBottomNav            from "./BottomNav";
 import styles from "./agent.module.css";
 
@@ -43,10 +45,11 @@ export default async function AgentHomePage() {
   const user = await verifyToken(token);
   if (!user || user.role !== "AGENT") redirect("/login");
 
-  const [stats, todayAttendance, tasks] = await Promise.all([
+  const [stats, todayAttendance, tasks, followUps] = await Promise.all([
     getAgentStats(user.id),
     getAgentTodayAttendance(user.id),
     getAgentTasks(user.id),
+    getAgentFollowUps(user.id),
   ]);
 
   const winRate = stats.totalLeads > 0
@@ -55,6 +58,12 @@ export default async function AgentHomePage() {
 
   return (
     <div className={styles.shell}>
+      <DailyBriefingModal
+        agentId={user.id}
+        agentName={user.name}
+        tasks={tasks}
+        followUps={followUps as any}
+      />
 
       {/* ── Top bar ───────────────────────────────────────────────── */}
       <header className={styles.topbar}>

@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import { getAgentLeads, getAgentStats } from "@/lib/queries/agent";
+import { getAgentTasks } from "@/app/actions/task";
+import { getAgentFollowUps } from "@/app/actions/followup";
+import DailyBriefingModal from "../DailyBriefingModal";
 import AgentBottomNav from "../BottomNav";
 import InboxClient from "./InboxClient";
 import styles from "../agent.module.css";
-
 
 // ── Icons ──────────────────────────────────────────────────────────────────
 const IconHome  = () => <svg className={styles.navIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>;
@@ -44,9 +46,11 @@ export default async function AgentInboxPage() {
   const user = await verifyToken(token);
   if (!user || user.role !== "AGENT") redirect("/login");
 
-  const [leads, stats] = await Promise.all([
+  const [leads, stats, tasks, followUps] = await Promise.all([
     getAgentLeads(user.id),
     getAgentStats(user.id),
+    getAgentTasks(user.id),
+    getAgentFollowUps(user.id),
   ]);
 
   const active  = leads.filter((l) => l.status !== "CLOSED" && l.status !== "NOT_INTERESTED").length;
@@ -55,6 +59,12 @@ export default async function AgentInboxPage() {
 
   return (
     <div className={styles.shell}>
+      <DailyBriefingModal
+        agentId={user.id}
+        agentName={user.name}
+        tasks={tasks}
+        followUps={followUps as any}
+      />
       {/* ── Header ──────────────────────────────────────────────── */}
       <header className={styles.topbar}>
         <div className={styles.topbarLogo}>

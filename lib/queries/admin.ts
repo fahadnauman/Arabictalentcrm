@@ -162,7 +162,7 @@ export async function getRecentActivityFeed(limit = 12): Promise<ActivityFeedIte
   const [auditLogs, leadAssignments] = await Promise.all([
     prisma.auditLog.findMany({
       where: {
-        action: { in: ["lead.transferred", "lead.assigned", "task.assigned"] }
+        action: { in: ["lead.transferred", "lead.assigned", "task.assigned", "task.self_assigned", "lead.deal_closed"] }
       },
       orderBy: { occurredAt: "desc" },
       take: limit,
@@ -189,6 +189,30 @@ export async function getRecentActivityFeed(limit = 12): Promise<ActivityFeedIte
         id: log.id,
         type: "TRANSFER",
         message: `${actor} transferred Lead ${lead} from ${from} to ${to}`,
+        actorName: actor,
+        occurredAt: log.occurredAt,
+        metadata: meta,
+      });
+    } else if (log.action === "lead.deal_closed") {
+      const actor = meta.agentName || "Agent";
+      const lead = meta.leadName || "Lead";
+      const course = meta.courseType || "Course";
+      const amount = meta.amountAED ? `AED ${Number(meta.amountAED).toLocaleString("en-AE")}` : "";
+      items.push({
+        id: log.id,
+        type: "TRANSFER", // Renders with emerald green accent
+        message: `🎉 ${actor} closed deal for ${lead} (${course}${amount ? ` • ${amount}` : ""})`,
+        actorName: actor,
+        occurredAt: log.occurredAt,
+        metadata: meta,
+      });
+    } else if (log.action === "task.assigned" || log.action === "task.self_assigned") {
+      const actor = meta.agentName || "Agent";
+      const title = meta.taskTitle || meta.taskMessage || "Directive";
+      items.push({
+        id: log.id,
+        type: "TASK",
+        message: `📋 ${actor} created task: "${title}"`,
         actorName: actor,
         occurredAt: log.occurredAt,
         metadata: meta,

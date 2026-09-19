@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import { updateTaskStatus } from "@/app/actions/task";
 import { useRouter } from "next/navigation";
+import CreateTaskModal from "./CreateTaskModal";
 
 interface Task {
   id: string;
@@ -12,6 +13,7 @@ interface Task {
   status: string;
   isBroadcast: boolean;
   senderName: string;
+  dueDate?: string | Date | null;
   createdAt: string | Date;
   completedAt: string | Date | null;
 }
@@ -42,6 +44,7 @@ function formatTimeAgo(d: string | Date): string {
 export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanelProps) {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isPending, startTx] = useTransition();
 
   const pendingCount = tasks.filter((t) => t.status !== "COMPLETED").length;
@@ -127,13 +130,35 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
             </span>
           )}
         </div>
-        <span style={{ fontSize: "0.75rem", color: "#8b8aa8" }}>From Management</span>
+
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <button
+            type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            style={{
+              background: "rgba(32, 201, 151, 0.12)",
+              border: "1px solid rgba(32, 201, 151, 0.35)",
+              color: "#20C997",
+              fontSize: "0.74rem",
+              fontWeight: 700,
+              padding: "0.25rem 0.6rem",
+              borderRadius: "6px",
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.3rem",
+              transition: "all 0.15s ease",
+            }}
+          >
+            + Create Task
+          </button>
+        </div>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
         {tasks.length === 0 ? (
           <div style={{ color: "#8b8aa8", fontSize: "0.85rem", textAlign: "center", padding: "1.5rem 0" }}>
-            No active directives assigned to you right now.
+            No active directives assigned to you right now. Click &quot;+ Create Task&quot; to add one.
           </div>
         ) : (
           tasks.map((task) => {
@@ -158,33 +183,62 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
                 }}
               >
                 {/* Status Toggle Checkbox */}
-                <input
-                  type="checkbox"
-                  checked={isCompleted}
-                  onChange={() => handleToggleStatus(task)}
+                <button
+                  onClick={() => handleToggleStatus(task)}
+                  disabled={isPending}
                   style={{
-                    width: "18px",
-                    height: "18px",
-                    marginTop: "2px",
-                    accentColor: "#20C997",
+                    width: "20px",
+                    height: "20px",
+                    borderRadius: "6px",
+                    border: isCompleted
+                      ? "1.5px solid #20C997"
+                      : "1.5px solid rgba(255, 255, 255, 0.3)",
+                    background: isCompleted ? "rgba(32, 201, 151, 0.2)" : "transparent",
+                    color: "#20C997",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.8rem",
                     cursor: "pointer",
                     flexShrink: 0,
+                    marginTop: "2px",
                   }}
-                  title={isCompleted ? "Mark incomplete" : "Mark completed"}
-                />
+                  title={isCompleted ? "Mark as pending" : "Mark as completed"}
+                >
+                  {isCompleted ? "✓" : ""}
+                </button>
 
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      marginBottom: "0.25rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    {task.title && (
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          fontSize: "0.88rem",
+                          color: isCompleted ? "#8b8aa8" : "#f1f0ff",
+                          textDecoration: isCompleted ? "line-through" : "none",
+                        }}
+                      >
+                        {task.title}
+                      </span>
+                    )}
                     <span
                       style={{
                         fontSize: "0.65rem",
-                        fontWeight: 800,
-                        textTransform: "uppercase",
-                        padding: "0.1rem 0.4rem",
-                        borderRadius: "4px",
+                        fontWeight: 700,
                         color: pMeta.color,
                         background: pMeta.bg,
                         border: `1px solid ${pMeta.border}`,
+                        padding: "0.1rem 0.45rem",
+                        borderRadius: "4px",
                       }}
                     >
                       {pMeta.label}
@@ -200,6 +254,20 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
                         }}
                       >
                         📢 All Agents
+                      </span>
+                    )}
+                    {task.dueDate && (
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          color: "#fb923c",
+                          background: "rgba(249, 115, 22, 0.1)",
+                          border: "1px solid rgba(249, 115, 22, 0.25)",
+                          padding: "0.1rem 0.4rem",
+                          borderRadius: "4px",
+                        }}
+                      >
+                        ⏰ Due: {new Date(task.dueDate).toLocaleDateString([], { month: "short", day: "numeric" })}
                       </span>
                     )}
                     <span style={{ fontSize: "0.72rem", color: "#8b8aa8", marginLeft: "auto" }}>
@@ -223,6 +291,13 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
           })
         )}
       </div>
+
+      <CreateTaskModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onCreated={(newTask) => setTasks((prev) => [newTask, ...prev])}
+        agentId={agentId}
+      />
     </div>
   );
 }

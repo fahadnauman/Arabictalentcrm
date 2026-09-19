@@ -6,11 +6,11 @@ import styles from "../agent.module.css";
 
 const FOLDERS = [
   { key: "ALL", label: "All Leads" },
+  { key: "FOLLOW_UPS", label: "⏰ Follow-Ups" },
   { key: "NEW_LEAD", label: "New Lead" },
   { key: "INTERESTED", label: "Interested" },
   { key: "NOT_INTERESTED", label: "Not Interested" },
   { key: "THINKING", label: "Thinking" },
-  { key: "FOLLOWUP", label: "Followup" },
   { key: "DEMO_ATTENDED", label: "Demo Attended" },
 ];
 
@@ -53,12 +53,19 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
   const meta   = STATUS_META[lead.status] ?? STATUS_META["NEW_LEAD"];
   const chance = SALE_CHANCE[lead.status] ?? 35;
   const initials = lead.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+  const nextFollowUp = lead.followUps?.[0];
 
   return (
     <Link
       href={`/dashboard/agent/chat/${lead.id}`}
       className={`${styles.leadCard} transition-all duration-200 ease-out`}
-      style={lead.status === "INTERESTED" ? { borderColor: "#20C997", boxShadow: "0 0 12px rgba(32, 201, 151, 0.4)" } : {}}
+      style={
+        nextFollowUp
+          ? { borderColor: "rgba(249, 115, 22, 0.45)", boxShadow: "0 0 12px rgba(249, 115, 22, 0.2)" }
+          : lead.status === "INTERESTED"
+          ? { borderColor: "#20C997", boxShadow: "0 0 12px rgba(32, 201, 151, 0.4)" }
+          : {}
+      }
     >
       <div className={styles.leadCardTop}>
         {/* Avatar + info */}
@@ -78,6 +85,44 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
           <span style={{ fontSize: "0.65rem", color: "var(--dim)" }}>{timeAgo(lead.updatedAt)}</span>
         </div>
       </div>
+
+      {/* Follow-Up Banner if scheduled */}
+      {nextFollowUp && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "0.4rem",
+            marginTop: "0.4rem",
+            padding: "0.3rem 0.55rem",
+            background: "rgba(249, 115, 22, 0.12)",
+            border: "1px solid rgba(249, 115, 22, 0.3)",
+            borderRadius: "8px",
+            fontSize: "0.72rem",
+            color: "#fb923c",
+          }}
+        >
+          <span>⏰</span>
+          <span style={{ fontWeight: 700 }}>
+            {new Date(nextFollowUp.scheduledAt).toLocaleDateString([], { month: "short", day: "numeric" })} at{" "}
+            {new Date(nextFollowUp.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {nextFollowUp.note && (
+            <span
+              style={{
+                color: "#c4c3dc",
+                maxWidth: "200px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontSize: "0.7rem",
+              }}
+            >
+              • {nextFollowUp.note}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Sale chance bar */}
       <div className={styles.chanceWrap}>
@@ -106,7 +151,13 @@ export default function InboxClient({ initialLeads, activeCount }: { initialLead
   const [filter, setFilter] = useState("ALL");
 
   const filteredLeads = useMemo(() => {
-    return initialLeads.filter(l => filter === "ALL" || l.status === filter);
+    if (filter === "ALL") return initialLeads;
+    if (filter === "FOLLOW_UPS") {
+      return initialLeads.filter(
+        (l) => l.status === "FOLLOWUP" || (l.followUps && l.followUps.length > 0)
+      );
+    }
+    return initialLeads.filter((l) => l.status === filter);
   }, [initialLeads, filter]);
 
   return (

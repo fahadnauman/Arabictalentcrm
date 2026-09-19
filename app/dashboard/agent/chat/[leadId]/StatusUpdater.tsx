@@ -3,6 +3,7 @@
 import { useState, useTransition, useOptimistic } from "react";
 import { updateLeadStatus }        from "@/app/actions/lead";
 import CloseDealModal              from "./CloseDealModal";
+import SetFollowUpModal           from "./SetFollowUpModal";
 import styles from "../../agent.module.css";
 
 const TAGS = [
@@ -21,6 +22,7 @@ interface Props {
 
 export default function StatusUpdater({ leadId, leadName, currentStatus }: Props) {
   const [showDealModal, setShowDealModal] = useState(false);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [isPending,     startTx]          = useTransition();
   const [optimisticStatus, addOptimisticStatus] = useOptimistic(
     currentStatus,
@@ -64,6 +66,25 @@ export default function StatusUpdater({ leadId, leadName, currentStatus }: Props
             {label}
           </button>
         ))}
+
+        {/* Set Follow-Up Action Button */}
+        <button
+          type="button"
+          onClick={() => setShowFollowUpModal(true)}
+          disabled={isPending}
+          className={styles.statusTag}
+          style={{
+            background: optimisticStatus === "FOLLOWUP" ? "rgba(249, 115, 22, 0.25)" : "rgba(249, 115, 22, 0.12)",
+            border: "1px solid rgba(249, 115, 22, 0.4)",
+            color: "#fb923c",
+            fontWeight: 700,
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+          title="Schedule date, time & callback note"
+        >
+          ⏰ Set Follow-Up
+        </button>
       </div>
 
       {showDealModal && (
@@ -72,6 +93,17 @@ export default function StatusUpdater({ leadId, leadName, currentStatus }: Props
           leadName={leadName}
           onClose={() => setShowDealModal(false)}
           onSaved={handleDealSaved}
+        />
+      )}
+
+      {showFollowUpModal && (
+        <SetFollowUpModal
+          leadId={leadId}
+          leadName={leadName}
+          onClose={() => setShowFollowUpModal(false)}
+          onScheduled={() => {
+            addOptimisticStatus("FOLLOWUP");
+          }}
         />
       )}
     </>

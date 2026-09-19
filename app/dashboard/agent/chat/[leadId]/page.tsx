@@ -9,6 +9,7 @@ import LeadInfoTrigger              from "./LeadInfoTrigger";
 import CallLeadButton               from "./CallLeadButton";
 import RefreshMessagesButton        from "./RefreshMessagesButton";
 import TransferLeadButton           from "./TransferLeadButton";
+import FollowUpAlertWatcher        from "@/app/dashboard/agent/FollowUpAlertWatcher";
 import { prisma }                   from "@/lib/prisma";
 import styles from "../../agent.module.css";
 
@@ -200,6 +201,8 @@ export default async function ChatPage({
         agentName={user.name}
         initialMsgs={initialMsgs}
       />
+
+      <FollowUpAlertWatcher />
     </div>
   );
 }

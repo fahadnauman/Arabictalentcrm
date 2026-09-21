@@ -26,10 +26,12 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
   const [mounted,       setMounted]       = useState(false);
   const [courseType,    setCourseType]    = useState(COURSE_OPTIONS[0]);
   const [customCourse,  setCustomCourse]  = useState("");
-  const [amountAED,     setAmountAED]     = useState("");
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>("FULL");
-  const [error,         setError]         = useState("");
-  const [isPending,     startTx]          = useTransition();
+  const [amountAED,        setAmountAED]        = useState("");
+  const [paymentStatus,    setPaymentStatus]    = useState<PaymentStatus>("FULL");
+  const [partialAmount,    setPartialAmount]    = useState("");
+  const [balanceDueDate,   setBalanceDueDate]   = useState("");
+  const [error,            setError]            = useState("");
+  const [isPending,        startTx]             = useTransition();
 
   useEffect(() => {
     setMounted(true);
@@ -51,9 +53,32 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
       return;
     }
 
+    let parsedPartial: number | null = null;
+    if (paymentStatus === "PARTIAL") {
+      parsedPartial = parseFloat(partialAmount);
+      if (isNaN(parsedPartial) || parsedPartial <= 0) {
+        setError("Please enter a valid partial amount paid upfront.");
+        return;
+      }
+      if (parsedPartial >= amount) {
+        setError("Partial payment must be less than the total course amount.");
+        return;
+      }
+      if (!balanceDueDate) {
+        setError("Please specify the balance due date for this partial deal.");
+        return;
+      }
+    }
+
     startTx(async () => {
       try {
-        await closeDeal(leadId, { courseType: finalCourse, amountAED: amount, paymentStatus });
+        await closeDeal(leadId, {
+          courseType: finalCourse,
+          amountAED: amount,
+          paymentStatus,
+          partialPaymentAmount: parsedPartial,
+          balanceDueDate: paymentStatus === "PARTIAL" ? balanceDueDate : null,
+        });
         onSaved();
       } catch (err: any) {
         setError(err?.message ?? "Failed to save. Please try again.");
@@ -152,6 +177,56 @@ export default function CloseDealModal({ leadId, leadName, onClose, onSaved }: P
               ))}
             </div>
           </div>
+
+          {/* Partial Payment Specific Inputs */}
+          {paymentStatus === "PARTIAL" && (
+            <div style={{
+              background: "rgba(251, 191, 36, 0.05)",
+              border: "1px solid rgba(251, 191, 36, 0.25)",
+              borderRadius: "12px",
+              padding: "0.85rem",
+              display: "flex",
+              flexDirection: "column",
+              gap: "0.75rem",
+            }}>
+              <div>
+                <label style={labelStyle}>Partial Deposit Collected (AED) *</label>
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: "0.9rem", top: "50%", transform: "translateY(-50%)", fontSize: "0.85rem", fontWeight: 700, color: "#fbbf24" }}>AED</span>
+                  <input
+                    type="number"
+                    value={partialAmount}
+                    onChange={(e) => setPartialAmount(e.target.value)}
+                    placeholder="e.g. 500.00"
+                    min="1"
+                    step="0.01"
+                    disabled={isPending}
+                    style={{ ...inputStyle, paddingLeft: "3.5rem" }}
+                  />
+                </div>
+                {amountAED && partialAmount && parseFloat(partialAmount) < parseFloat(amountAED) && (
+                  <div style={{ fontSize: "0.72rem", color: "#fbbf24", marginTop: "0.3rem" }}>
+                    Remaining balance: AED {(parseFloat(amountAED) - parseFloat(partialAmount)).toFixed(2)}
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label style={labelStyle}>Balance Due Date (Creates Auto Task) *</label>
+                <input
+                  type="date"
+                  value={balanceDueDate}
+                  onChange={(e) => setBalanceDueDate(e.target.value)}
+                  disabled={isPending}
+                  style={inputStyle}
+                  min={new Date().toISOString().split("T")[0]}
+                />
+                <span style={{ fontSize: "0.7rem", color: "#8b8aa8", marginTop: "0.25rem", display: "block" }}>
+                  A high-priority directive task will automatically be assigned to you on this date.
+                </span>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div style={{ padding: "0.6rem", borderRadius: 9, fontSize: "0.8rem", background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)", color: "#f87171" }}>

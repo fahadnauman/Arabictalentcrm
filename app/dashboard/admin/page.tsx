@@ -58,10 +58,54 @@ export default async function AdminDashboard() {
   ]);
 
   const statCards = [
-    { label: "Total Leads",   value: stats.totalLeads,   icon: <IconTarget />, accent: styles.accentPurple },
-    { label: "Closed Deals",  value: stats.closedDeals,  icon: <IconCheck />,  accent: styles.accentGreen  },
-    { label: "Active Agents", value: stats.activeAgents, icon: <IconUsers />,  accent: styles.accentBlue   },
-    { label: "Win Rate",      value: `${stats.winRate}%`,icon: <IconTrend />,  accent: styles.accentGold   },
+    {
+      label: "Total Leads",
+      value: stats.totalLeads,
+      icon: <IconTarget />,
+      accent: styles.accentPurple,
+      sub: (
+        <div style={{ display: "flex", gap: "0.35rem", marginTop: "0.4rem", fontSize: "0.7rem", fontWeight: 700 }}>
+          <span style={{ color: "#f87171" }} title="Hot Leads">🔥 {stats.temperatureBreakdown.HOT}</span>
+          <span style={{ color: "#fbbf24" }} title="Warm Leads">☀️ {stats.temperatureBreakdown.WARM}</span>
+          <span style={{ color: "#38bdf8" }} title="Cold Leads">❄️ {stats.temperatureBreakdown.COLD}</span>
+        </div>
+      )
+    },
+    {
+      label: "Follow-Up Leads",
+      value: stats.followUpLeadsCount,
+      icon: <span style={{ fontSize: "1.1rem" }}>⏰</span>,
+      accent: styles.accentGold,
+      sub: <span style={{ fontSize: "0.72rem", color: "#fb923c" }}>Pending contact</span>
+    },
+    {
+      label: "New Leads",
+      value: stats.newLeadsCount,
+      icon: <span style={{ fontSize: "1.1rem" }}>⚡</span>,
+      accent: styles.accentBlue,
+      sub: <span style={{ fontSize: "0.72rem", color: "#60a5fa" }}>Fresh pipeline</span>
+    },
+    {
+      label: "Closed Deals",
+      value: stats.closedDeals,
+      icon: <IconCheck />,
+      accent: styles.accentGreen,
+      sub: <span style={{ fontSize: "0.72rem", color: "#20C997" }}>Won deals</span>
+    },
+    {
+      label: "Active Agents",
+      value: stats.activeAgents,
+      icon: <IconUsers />,
+      accent: styles.accentBlue,
+      sub: <span style={{ fontSize: "0.72rem", color: "#8b8aa8" }}>On-duty team</span>
+    },
+    {
+      label: "Win Rate",
+      value: `${stats.winRate}%`,
+      icon: <IconTrend />,
+      accent: styles.accentGold,
+      sub: <span style={{ fontSize: "0.72rem", color: "#fbbf24" }}>Conversion efficiency</span>
+    },
   ];
 
   const statusOrder: (keyof typeof stats.statusBreakdown)[] = [
@@ -114,8 +158,123 @@ export default async function AdminDashboard() {
               <div className={styles.statIcon}>{s.icon}</div>
               <div className={styles.statValue}>{s.value}</div>
               <div className={styles.statLabel}>{s.label}</div>
+              {s.sub && <div>{s.sub}</div>}
             </div>
           ))}
+        </div>
+
+        {/* ── Today's Overview Section ───────────────────────────── */}
+        <div style={{
+          background: "linear-gradient(180deg, #101626 0%, #0a0e1a 100%)",
+          border: "1px solid rgba(32, 201, 151, 0.25)",
+          borderRadius: "16px",
+          padding: "1.25rem",
+          marginTop: "1.75rem",
+          marginBottom: "1.5rem",
+          boxShadow: "0 8px 30px rgba(0,0,0,0.3)",
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "1rem",
+            paddingBottom: "0.75rem",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+            flexWrap: "wrap",
+            gap: "0.5rem",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
+              <span style={{ fontSize: "1.2rem" }}>⚡</span>
+              <div>
+                <span style={{ color: "#f1f0ff", fontWeight: 800, fontSize: "1.05rem" }}>
+                  Today&apos;s Operations Overview
+                </span>
+                <p style={{ margin: 0, fontSize: "0.75rem", color: "#8b8aa8" }}>
+                  Real-time GCC pipeline activity for today
+                </p>
+              </div>
+            </div>
+
+            {/* Dynamic Today's Lead Info Breakdown */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.6rem",
+              background: "rgba(255, 255, 255, 0.04)",
+              border: "1px solid rgba(255, 255, 255, 0.08)",
+              padding: "0.3rem 0.75rem",
+              borderRadius: "99px",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+            }}>
+              <span style={{ color: "#8b8aa8" }}>Today&apos;s Leads:</span>
+              <span style={{ color: "#f87171" }} title="Hot Leads Joined Today">🔥 {stats.todayOverview.temperatureBreakdown.HOT} Hot</span>
+              <span style={{ color: "#fbbf24" }} title="Warm Leads Joined Today">☀️ {stats.todayOverview.temperatureBreakdown.WARM} Warm</span>
+              <span style={{ color: "#38bdf8" }} title="Cold Leads Joined Today">❄️ {stats.todayOverview.temperatureBreakdown.COLD} Cold</span>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.9rem" }}>
+            <div style={{
+              background: "rgba(249, 115, 22, 0.08)",
+              border: "1px solid rgba(249, 115, 22, 0.25)",
+              borderRadius: "12px",
+              padding: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+            }}>
+              <span style={{ fontSize: "1.8rem" }}>⏰</span>
+              <div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#fb923c" }}>
+                  {stats.todayOverview.todayFollowUps}
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "#d1d5db", fontWeight: 600 }}>
+                  Today&apos;s Follow-Ups
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              background: "rgba(96, 165, 250, 0.08)",
+              border: "1px solid rgba(96, 165, 250, 0.25)",
+              borderRadius: "12px",
+              padding: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+            }}>
+              <span style={{ fontSize: "1.8rem" }}>⚡</span>
+              <div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#60a5fa" }}>
+                  {stats.todayOverview.todayNewLeads}
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "#d1d5db", fontWeight: 600 }}>
+                  Today&apos;s New Leads
+                </div>
+              </div>
+            </div>
+
+            <div style={{
+              background: "rgba(32, 201, 151, 0.08)",
+              border: "1px solid rgba(32, 201, 151, 0.25)",
+              borderRadius: "12px",
+              padding: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.85rem",
+            }}>
+              <span style={{ fontSize: "1.8rem" }}>🎉</span>
+              <div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#20C997" }}>
+                  {stats.todayOverview.todayClosedDeals}
+                </div>
+                <div style={{ fontSize: "0.78rem", color: "#d1d5db", fontWeight: 600 }}>
+                  Today&apos;s Closed Deals
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ── Status breakdown ─────────────────────────────────────── */}
@@ -153,13 +312,13 @@ export default async function AdminDashboard() {
           <TaskAssignmentWidget agents={activeAgents} recentTasks={recentTasks} />
         </div>
 
-        {/* ── Revenue & Performance Section ──────────────────────────── */}
+        {/* ── Revenue & Performance Section with Distinct Partial Payments ── */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: "3rem" }}>
           <h2 className={styles.sectionTitle}>Revenue & Leaderboard</h2>
         </div>
 
         <div style={{ 
-          background: "linear-gradient(135deg, rgba(32,201,151,0.1), rgba(32,201,151,0.02))",
+          background: "linear-gradient(135deg, rgba(32,201,151,0.12), rgba(15,20,40,0.8))",
           border: "1px solid rgba(32,201,151,0.3)",
           borderRadius: "16px",
           padding: "2rem",
@@ -172,14 +331,63 @@ export default async function AdminDashboard() {
           position: "relative",
           overflow: "hidden"
         }}>
-          {/* Decorative glow */}
           <div style={{ position: "absolute", top: "-50%", left: "-10%", width: "120%", height: "200%", background: "radial-gradient(ellipse at center, rgba(32,201,151,0.15) 0%, transparent 60%)", pointerEvents: "none" }} />
           
           <div style={{ fontSize: "0.85rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em", color: "#20C997", marginBottom: "0.5rem", zIndex: 1 }}>
-            Total Revenue Generated
+            Total Cash Collected
           </div>
           <div style={{ fontSize: "3.5rem", fontWeight: 800, color: "#f1f0ff", letterSpacing: "-0.03em", zIndex: 1, textShadow: "0 2px 10px rgba(0,0,0,0.5)" }}>
-            AED {(stats.totalRevenueCents / 100).toLocaleString("en-AE")}
+            AED {stats.revenueTracking.totalCashCollectedAED.toLocaleString("en-AE")}
+          </div>
+
+          {/* Distinct Full vs Partial Payments Summary */}
+          <div style={{
+            display: "flex",
+            gap: "1.5rem",
+            justifyContent: "center",
+            flexWrap: "wrap",
+            marginTop: "1rem",
+            zIndex: 1,
+          }}>
+            <div style={{
+              background: "rgba(32, 201, 151, 0.1)",
+              border: "1px solid rgba(32, 201, 151, 0.3)",
+              borderRadius: "10px",
+              padding: "0.5rem 1rem",
+              fontSize: "0.82rem",
+              color: "#f1f0ff",
+            }}>
+              <span style={{ color: "#20C997", fontWeight: 700 }}>✓ Full Deals: </span>
+              <strong>AED {stats.revenueTracking.fullRevenueAED.toLocaleString("en-AE")}</strong>
+              <span style={{ color: "#8b8aa8", fontSize: "0.72rem", marginLeft: "0.3rem" }}>({stats.revenueTracking.fullDealsCount} deals)</span>
+            </div>
+
+            <div style={{
+              background: "rgba(251, 191, 36, 0.1)",
+              border: "1px solid rgba(251, 191, 36, 0.3)",
+              borderRadius: "10px",
+              padding: "0.5rem 1rem",
+              fontSize: "0.82rem",
+              color: "#f1f0ff",
+            }}>
+              <span style={{ color: "#fbbf24", fontWeight: 700 }}>◑ Partial Collected: </span>
+              <strong>AED {stats.revenueTracking.partialCollectedAED.toLocaleString("en-AE")}</strong>
+              <span style={{ color: "#8b8aa8", fontSize: "0.72rem", marginLeft: "0.3rem" }}>({stats.revenueTracking.partialDealsCount} deals)</span>
+            </div>
+
+            {stats.revenueTracking.partialBalanceDueAED > 0 && (
+              <div style={{
+                background: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+                borderRadius: "10px",
+                padding: "0.5rem 1rem",
+                fontSize: "0.82rem",
+                color: "#f87171",
+              }}>
+                <span style={{ fontWeight: 700 }}>⏳ Balance Due Pending: </span>
+                <strong>AED {stats.revenueTracking.partialBalanceDueAED.toLocaleString("en-AE")}</strong>
+              </div>
+            )}
           </div>
         </div>
 

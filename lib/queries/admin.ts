@@ -15,11 +15,36 @@ export interface AgentPerformance {
 }
 
 export interface AdminStats {
-  totalLeads:    number;
-  closedDeals:   number;
-  activeAgents:  number;
-  winRate:       number; // percentage 0-100
+  totalLeads:        number;
+  closedDeals:       number;
+  activeAgents:      number;
+  winRate:           number; // percentage 0-100
   totalRevenueCents: number;
+  followUpLeadsCount: number;
+  newLeadsCount:     number;
+  temperatureBreakdown: {
+    HOT:  number;
+    WARM: number;
+    COLD: number;
+  };
+  todayOverview: {
+    todayFollowUps:   number;
+    todayNewLeads:    number;
+    todayClosedDeals: number;
+    temperatureBreakdown: {
+      HOT:  number;
+      WARM: number;
+      COLD: number;
+    };
+  };
+  revenueTracking: {
+    totalCashCollectedAED: number;
+    fullRevenueAED:        number;
+    partialCollectedAED:   number;
+    partialBalanceDueAED:  number;
+    fullDealsCount:        number;
+    partialDealsCount:     number;
+  };
   statusBreakdown: {
     NEW_LEAD:       number;
     THINKING:       number;
@@ -43,6 +68,10 @@ export interface RecentLead {
 // ── Main query — runs all counts in a single round-trip ───────────────────
 
 export async function getAdminStats(): Promise<AdminStats> {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
   const [
     totalLeads,
     closedDeals,
@@ -51,6 +80,13 @@ export async function getAdminStats(): Promise<AdminStats> {
     countThinking,
     countNotInterested,
     countNoResponse,
+    followUpLeadsCount,
+    temperatureCounts,
+    todayFollowUps,
+    todayNewLeads,
+    todayClosedDeals,
+    todayTempCounts,
+    closedDealsData,
     recentLeadRows,
     agentRows,
   ] = await Promise.all([
@@ -61,6 +97,49 @@ export async function getAdminStats(): Promise<AdminStats> {
     prisma.lead.count({ where: { status: LeadStatus.THINKING } }),
     prisma.lead.count({ where: { status: LeadStatus.NOT_INTERESTED } }),
     prisma.lead.count({ where: { status: LeadStatus.NO_RESPONSE } }),
+    prisma.lead.count({
+      where: {
+        OR: [
+          { status: LeadStatus.FOLLOWUP },
+          { followUps: { some: { status: "PENDING" } } },
+        ],
+      },
+    }),
+    prisma.lead.groupBy({
+      by: ["temperature"],
+      _count: { temperature: true },
+    }),
+    prisma.followUp.count({
+      where: {
+        scheduledAt: { gte: startOfToday, lte: endOfToday },
+      },
+    }),
+    prisma.lead.count({
+      where: {
+        createdAt: { gte: startOfToday },
+      },
+    }),
+    prisma.lead.count({
+      where: {
+        status: LeadStatus.CLOSED,
+        closedAt: { gte: startOfToday },
+      },
+    }),
+    prisma.lead.groupBy({
+      by: ["temperature"],
+      where: {
+        createdAt: { gte: startOfToday },
+      },
+      _count: { temperature: true },
+    }),
+    prisma.lead.findMany({
+      where: { status: LeadStatus.CLOSED },
+      select: {
+        dealValueCents: true,
+        paymentStatus: true,
+        partialPaymentAmount: true,
+      },
+    }),
     prisma.lead.findMany({
       orderBy: { createdAt: "desc" },
       take: 10,
@@ -124,12 +203,66 @@ export async function getAdminStats(): Promise<AdminStats> {
 
   const totalRevenueCents = agentPerformance.reduce((sum, agent) => sum + agent.revenueGeneratedCents, 0);
 
+  // Platform-wide temperature breakdowns
+  const tempMap = { HOT: 0, WARM: 0, COLD: 0 };
+  for (const t of temperatureCounts) {
+    if (t.temperature in tempMap) {
+      tempMap[t.temperature as keyof typeof tempMap] = t._count.temperature;
+    }
+  }
+
+  const todayTempMap = { HOT: 0, WARM: 0, COLD: 0 };
+  for (const t of todayTempCounts) {
+    if (t.temperature in todayTempMap) {
+      todayTempMap[t.temperature as keyof typeof todayTempMap] = t._count.temperature;
+    }
+  }
+
+  // Financial & Partial payments calculation
+  let fullRevenueAED = 0;
+  let partialCollectedAED = 0;
+  let partialBalanceDueAED = 0;
+  let fullDealsCount = 0;
+  let partialDealsCount = 0;
+
+  for (const deal of closedDealsData) {
+    const totalValAED = Number(deal.dealValueCents || 0) / 100;
+    if (deal.paymentStatus === "PARTIAL") {
+      partialDealsCount++;
+      const collected = Number(deal.partialPaymentAmount || 0);
+      partialCollectedAED += collected;
+      partialBalanceDueAED += Math.max(0, totalValAED - collected);
+    } else {
+      fullDealsCount++;
+      fullRevenueAED += totalValAED;
+    }
+  }
+
+  const totalCashCollectedAED = fullRevenueAED + partialCollectedAED;
+
   return {
     totalLeads,
     closedDeals,
     activeAgents,
     winRate,
     totalRevenueCents,
+    followUpLeadsCount,
+    newLeadsCount: countNewLead,
+    temperatureBreakdown: tempMap,
+    todayOverview: {
+      todayFollowUps,
+      todayNewLeads,
+      todayClosedDeals,
+      temperatureBreakdown: todayTempMap,
+    },
+    revenueTracking: {
+      totalCashCollectedAED,
+      fullRevenueAED,
+      partialCollectedAED,
+      partialBalanceDueAED,
+      fullDealsCount,
+      partialDealsCount,
+    },
     statusBreakdown: {
       NEW_LEAD:       countNewLead,
       THINKING:       countThinking,

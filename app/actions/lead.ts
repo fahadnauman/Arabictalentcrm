@@ -3,7 +3,7 @@
 import { prisma }                   from "@/lib/prisma";
 import { cookies }                  from "next/headers";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
-import { LeadStatus, PaymentStatus } from "@prisma/client";
+import { LeadStatus, PaymentStatus, LeadTemperature } from "@prisma/client";
 import { revalidatePath }           from "next/cache";
 
 // ── Shared auth helper ────────────────────────────────────────────────────
@@ -42,9 +42,11 @@ export async function updateLeadStatus(leadId: string, newStatus: LeadStatus) {
 
 // ── Close Deal (CLOSED + revenue capture) ────────────────────────────────
 export interface CloseDealInput {
-  courseType:    string;
-  amountAED:     number;
-  paymentStatus: PaymentStatus;
+  courseType:            string;
+  amountAED:             number;
+  paymentStatus:         PaymentStatus;
+  partialPaymentAmount?: number | null;
+  balanceDueDate?:       string | Date | null;
 }
 
 export async function closeDeal(leadId: string, data: CloseDealInput) {
@@ -57,18 +59,50 @@ export async function closeDeal(leadId: string, data: CloseDealInput) {
 
   const now = new Date();
 
+  const partialAmount =
+    data.paymentStatus === "PARTIAL" && data.partialPaymentAmount != null
+      ? Number(data.partialPaymentAmount)
+      : null;
+
+  const dueDate =
+    data.paymentStatus === "PARTIAL" && data.balanceDueDate
+      ? new Date(data.balanceDueDate)
+      : null;
+
   const updatedLead = await prisma.lead.update({
     where: filter,
     data:  {
-      status:          LeadStatus.CLOSED,
-      closedAt:        now,
-      statusChangedAt: now,
-      dealValueCents:  Math.round(data.amountAED * 100),
-      dealCurrency:    "AED",
-      courseType:      data.courseType.trim(),
-      paymentStatus:   data.paymentStatus,
+      status:               LeadStatus.CLOSED,
+      closedAt:             now,
+      statusChangedAt:      now,
+      dealValueCents:       Math.round(data.amountAED * 100),
+      dealCurrency:         "AED",
+      courseType:           data.courseType.trim(),
+      paymentStatus:        data.paymentStatus,
+      partialPaymentAmount: partialAmount,
+      balanceDueDate:       dueDate,
     },
   });
+
+  // Automatically generate a Task for that counselor tied to balanceDueDate when partial payment is logged
+  if (data.paymentStatus === "PARTIAL" && dueDate) {
+    try {
+      const remainingBalance = data.amountAED - (partialAmount ?? 0);
+      await prisma.taskAssignment.create({
+        data: {
+          senderId:   user.id,
+          receiverId: updatedLead.assignedAgentId || user.id,
+          title:      `💰 Collect Balance: ${updatedLead.name}`,
+          message:    `Collect remaining balance of AED ${remainingBalance.toLocaleString("en-AE")} for ${updatedLead.name} (${data.courseType.trim()}). Total deal: AED ${data.amountAED.toLocaleString("en-AE")}, Partial deposit paid: AED ${(partialAmount ?? 0).toLocaleString("en-AE")}.`,
+          dueDate:    dueDate,
+          priority:   "HIGH",
+          status:     "PENDING",
+        },
+      });
+    } catch (taskErr) {
+      console.warn("Failed to auto-create balance due task:", taskErr);
+    }
+  }
 
   // Explicitly log into AuditLog for ActivityFeed & Audit Trail
   try {
@@ -79,13 +113,15 @@ export async function closeDeal(leadId: string, data: CloseDealInput) {
         entityType: "Lead",
         entityId: updatedLead.id,
         metadata: {
-          leadId: updatedLead.id,
-          leadName: updatedLead.name,
-          leadPhone: updatedLead.phone,
-          courseType: data.courseType.trim(),
-          amountAED: data.amountAED,
-          paymentStatus: data.paymentStatus,
-          agentName: user.name || "Counselor",
+          leadId:               updatedLead.id,
+          leadName:             updatedLead.name,
+          leadPhone:            updatedLead.phone,
+          courseType:           data.courseType.trim(),
+          amountAED:            data.amountAED,
+          paymentStatus:        data.paymentStatus,
+          partialPaymentAmount: partialAmount,
+          balanceDueDate:       dueDate ? dueDate.toISOString() : null,
+          agentName:            user.name || "Counselor",
         },
       },
     });
@@ -308,4 +344,46 @@ export async function transferLead(leadId: string, targetAgentId: string) {
       languageGroup: targetAgent.languageGroup,
     },
   };
+}
+
+// ── Lead Temperature (HOT, WARM, COLD) ──────────────────────────────────
+export async function updateLeadTemperature(leadId: string, temperature: LeadTemperature) {
+  const user = await getUser();
+
+  const filter =
+    user.role === "ADMIN"
+      ? { id: leadId }
+      : { id: leadId, assignedAgentId: user.id };
+
+  const updatedLead = await prisma.lead.update({
+    where: filter,
+    data:  { temperature },
+  });
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "lead.temperature_changed",
+        entityType: "Lead",
+        entityId: updatedLead.id,
+        metadata: {
+          leadId: updatedLead.id,
+          leadName: updatedLead.name,
+          temperature,
+          agentName: user.name,
+        },
+      },
+    });
+  } catch (auditErr) {
+    console.warn("Failed to log temperature change audit:", auditErr);
+  }
+
+  revalidatePath(`/dashboard/agent/chat/${leadId}`);
+  revalidatePath("/dashboard/agent/inbox");
+  revalidatePath("/dashboard/agent");
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/admin/leads");
+
+  return { success: true, temperature: updatedLead.temperature };
 }

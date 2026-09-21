@@ -10,6 +10,7 @@ import {
 } from "react";
 import { sendMessage, recordOutboundMedia, SentMessage } from "@/app/actions/message";
 import { updateLeadInfo } from "@/app/actions/lead";
+import UpdateFollowUpModal from "./UpdateFollowUpModal";
 import styles from "../../agent.module.css";
 import chatStyles from "./chat.module.css";
 
@@ -36,10 +37,12 @@ export interface ChatMessage {
 }
 
 interface Props {
-  leadId:      string;
-  leadPhone:   string;
-  agentName:   string;
-  initialMsgs: ChatMessage[];
+  leadId:            string;
+  leadPhone:         string;
+  leadName?:         string;
+  agentName:         string;
+  initialMsgs:       ChatMessage[];
+  activeFollowUpId?: string | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -83,10 +86,18 @@ const VPS_DIRECT_UPLOAD_URL =
   "https://143.198.182.24.sslip.io/direct-upload";
 
 // ── Component ────────────────────────────────────────────────────────────
-export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: Props) {
+export default function ChatFeed({
+  leadId,
+  leadPhone,
+  leadName,
+  agentName,
+  initialMsgs,
+  activeFollowUpId,
+}: Props) {
   const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs);
   const [text, setText]           = useState("");
   const [showMenu, setShowMenu]   = useState(false);
+  const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [isPending, startTx]      = useTransition();
   const [errorId, setErrorId]     = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -950,6 +961,34 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
           )}
         </div>
 
+        {/* Update Follow-Up Outcome Button */}
+        <button
+          type="button"
+          onClick={() => setShowFollowUpModal(true)}
+          disabled={isPending || isUploading}
+          style={{
+            height: 36,
+            padding: "0 0.65rem",
+            borderRadius: "18px",
+            background: "rgba(251, 146, 60, 0.12)",
+            border: "1px solid rgba(251, 146, 60, 0.35)",
+            color: "#fb923c",
+            fontSize: "0.74rem",
+            fontWeight: 700,
+            display: "flex",
+            alignItems: "center",
+            gap: "0.3rem",
+            cursor: "pointer",
+            flexShrink: 0,
+            whiteSpace: "nowrap",
+            transition: "all 0.15s ease",
+          }}
+          title="Update Follow-Up Status & Outcome (Not Responding, Interested, Callback...)"
+        >
+          <span>⏰</span>
+          <span>Update Follow-Up</span>
+        </button>
+
         {/* Attachment Button */}
         <input 
           type="file" 
@@ -1050,6 +1089,15 @@ export default function ChatFeed({ leadId, leadPhone, agentName, initialMsgs }: 
           )}
         </button>
       </div>
+
+      {showFollowUpModal && (
+        <UpdateFollowUpModal
+          leadId={leadId}
+          leadName={leadName || "Lead"}
+          activeFollowUpId={activeFollowUpId}
+          onClose={() => setShowFollowUpModal(false)}
+        />
+      )}
     </>
   );
 }

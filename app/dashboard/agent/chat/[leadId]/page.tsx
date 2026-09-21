@@ -9,6 +9,7 @@ import LeadInfoTrigger              from "./LeadInfoTrigger";
 import CallLeadButton               from "./CallLeadButton";
 import RefreshMessagesButton        from "./RefreshMessagesButton";
 import TransferLeadButton           from "./TransferLeadButton";
+import TemperatureToggle            from "./TemperatureToggle";
 import FollowUpAlertWatcher        from "@/app/dashboard/agent/FollowUpAlertWatcher";
 import { prisma }                   from "@/lib/prisma";
 import styles from "../../agent.module.css";
@@ -152,6 +153,7 @@ export default async function ChatPage({
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginLeft: "auto" }}>
+            <TemperatureToggle leadId={lead.id} initialTemperature={lead.temperature} />
             <TransferLeadButton
               leadId={lead.id}
               leadName={lead.name}
@@ -198,8 +200,10 @@ export default async function ChatPage({
       <ChatFeed
         leadId={lead.id}
         leadPhone={lead.phone}
+        leadName={lead.name}
         agentName={user.name}
         initialMsgs={initialMsgs}
+        activeFollowUpId={lead.followUps?.[0]?.id ?? null}
       />
 
       <FollowUpAlertWatcher />

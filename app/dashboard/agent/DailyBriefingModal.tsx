@@ -197,11 +197,18 @@ export default function DailyBriefingModal({
 
         {/* Scheduled Follow-ups section */}
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.6rem" }}>
-            <span style={{ fontSize: "0.9rem" }}>⏰</span>
-            <h4 style={{ margin: 0, fontSize: "0.88rem", fontWeight: 700, color: "#f1f0ff" }}>
-              Scheduled Lead Callbacks
-            </h4>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.6rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+              <span style={{ fontSize: "0.95rem" }}>⏰</span>
+              <h4 style={{ margin: 0, fontSize: "0.9rem", fontWeight: 700, color: "#f1f0ff" }}>
+                Scheduled Lead Follow-Ups ({followUps.length})
+              </h4>
+            </div>
+            {followUps.length > 0 && (
+              <span style={{ fontSize: "0.72rem", color: "#fb923c", fontWeight: 700 }}>
+                Priority Action Items
+              </span>
+            )}
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
@@ -220,48 +227,89 @@ export default function DailyBriefingModal({
                 No follow-ups booked yet for today. Keep prospecting!
               </div>
             ) : (
-              followUps.slice(0, 4).map((fu) => (
-                <div
-                  key={fu.id}
-                  style={{
-                    padding: "0.75rem 0.9rem",
-                    borderRadius: "12px",
-                    background: "rgba(255, 255, 255, 0.03)",
-                    border: "1px solid rgba(249, 115, 22, 0.2)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "0.75rem",
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#ffffff" }}>
-                      {fu.lead.name}
-                    </div>
-                    <div style={{ fontSize: "0.74rem", color: "#9ca3af" }}>
-                      📱 {fu.lead.phone}
-                    </div>
-                    {fu.note && (
-                      <div style={{ fontSize: "0.72rem", color: "#fb923c", marginTop: "2px" }}>
-                        Note: {fu.note}
-                      </div>
-                    )}
-                  </div>
+              followUps.map((fu) => {
+                const priority = (fu as any).priority || "MEDIUM";
+                const pColor = priority === "HIGH" ? "#ef4444" : priority === "MEDIUM" ? "#fb923c" : "#60a5fa";
+
+                return (
                   <div
+                    key={fu.id}
                     style={{
-                      fontSize: "0.75rem",
-                      fontWeight: 700,
-                      color: "#fb923c",
-                      background: "rgba(249, 115, 22, 0.12)",
-                      padding: "0.25rem 0.5rem",
-                      borderRadius: "6px",
-                      whiteSpace: "nowrap",
+                      padding: "0.8rem 0.95rem",
+                      borderRadius: "12px",
+                      background: "rgba(255, 255, 255, 0.03)",
+                      border: "1px solid rgba(249, 115, 22, 0.25)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "0.75rem",
                     }}
                   >
-                    {new Date(fu.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: "0.88rem", fontWeight: 800, color: "#ffffff" }}>
+                          {fu.lead.name}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "0.65rem",
+                            fontWeight: 800,
+                            padding: "0.1rem 0.4rem",
+                            borderRadius: "4px",
+                            background: `${pColor}20`,
+                            border: `1px solid ${pColor}40`,
+                            color: pColor,
+                          }}
+                        >
+                          {priority}
+                        </span>
+                        <span style={{ fontSize: "0.74rem", color: "#9ca3af" }}>
+                          📱 {fu.lead.phone}
+                        </span>
+                      </div>
+                      {fu.note && (
+                        <div style={{ fontSize: "0.75rem", color: "#e2e8f0", marginTop: "0.25rem", lineHeight: 1.35 }}>
+                          📝 {fu.note}
+                        </div>
+                      )}
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}>
+                      <div
+                        style={{
+                          fontSize: "0.75rem",
+                          fontWeight: 700,
+                          color: "#fb923c",
+                          background: "rgba(249, 115, 22, 0.12)",
+                          padding: "0.25rem 0.5rem",
+                          borderRadius: "6px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {new Date(fu.scheduledAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </div>
+
+                      <Link
+                        href={`/dashboard/agent/chat/${fu.lead.id}`}
+                        onClick={() => handleDismiss()}
+                        style={{
+                          padding: "0.3rem 0.65rem",
+                          borderRadius: "6px",
+                          background: "rgba(32, 201, 151, 0.15)",
+                          border: "1px solid rgba(32, 201, 151, 0.35)",
+                          color: "#20C997",
+                          fontSize: "0.72rem",
+                          fontWeight: 700,
+                          textDecoration: "none",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Chat Lead ➔
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

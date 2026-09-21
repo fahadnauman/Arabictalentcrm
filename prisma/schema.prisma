@@ -58,6 +58,13 @@ enum PaymentStatus {
   FULL     // Payment received in full
 }
 
+/// Priority temperature of a lead.
+enum LeadTemperature {
+  HOT
+  WARM
+  COLD
+}
+
 // ============================================================
 // USERS  (Admin / Manager + Sales Agents)
 // ============================================================
@@ -154,6 +161,15 @@ model Lead {
 
   /// Whether the deal payment was partial or fully collected.
   paymentStatus   PaymentStatus?
+
+  /// Partial payment amount collected (in currency units, e.g. AED)
+  partialPaymentAmount Float?
+
+  /// Balance due date for partial payment deals
+  balanceDueDate       DateTime?
+
+  /// Lead priority temperature
+  temperature          LeadTemperature @default(WARM)
 
   /// The Twilio-assigned WhatsApp conversation SID for this lead.
   twilioConversationSid String? @unique
@@ -437,7 +453,7 @@ model TaskAssignment {
   title       String?
   message     String    @db.Text
   priority    String    @default("MEDIUM") // LOW, MEDIUM, HIGH, URGENT
-  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED
+  status      String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, OVERDUE
   
   senderId    String
   sender      User      @relation("TasksSent", fields: [senderId], references: [id], onDelete: Cascade)
@@ -448,6 +464,9 @@ model TaskAssignment {
   isBroadcast Boolean   @default(false)
   dueDate     DateTime?
   completedAt DateTime?
+
+  overdueReason  String? @db.Text
+  countermeasure String? @db.Text
   
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -495,7 +514,10 @@ model FollowUp {
   agent       User      @relation(fields: [agentId], references: [id], onDelete: Cascade)
   scheduledAt DateTime
   note        String    @db.Text
-  status      String    @default("PENDING") // PENDING, COMPLETED, CANCELLED
+  priority    String    @default("MEDIUM") // HIGH, MEDIUM, LOW
+  status      String    @default("PENDING") // PENDING, COMPLETED, OVERDUE, CANCELLED
+  overdueReason  String? @db.Text
+  countermeasure String? @db.Text
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 

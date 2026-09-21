@@ -92,30 +92,189 @@ export default async function AgentHomePage() {
 
       <div className={styles.body}>
 
-        {/* ── Revenue hero ──────────────────────────────────────── */}
-        <div className={styles.heroBlock}>
-          <div className={styles.heroLabel}>Sales Amount Generated</div>
+        {/* ── Revenue hero with distinct Partial Payments tracking ── */}
+        <div className={styles.heroBlock} style={{ position: "relative", overflow: "hidden" }}>
+          <div className={styles.heroLabel}>Total Revenue Collected</div>
           <div className={styles.heroAmount}>
             <span className={styles.heroCurrency}>AED</span>
-            {formatAED(stats.revenueAED)}
+            {formatAED(stats.revenueTracking.totalCashCollectedAED)}
           </div>
-          <div className={styles.heroSub}>
-            from {stats.closedLeads} closed deal{stats.closedLeads !== 1 ? "s" : ""}
+          <div className={styles.heroSub} style={{ display: "flex", gap: "0.8rem", justifyContent: "center", flexWrap: "wrap", marginTop: "0.4rem" }}>
+            <span>Full: <strong style={{ color: "#20C997" }}>AED {formatAED(stats.revenueTracking.fullRevenueAED)}</strong> ({stats.revenueTracking.fullDealsCount})</span>
+            <span>·</span>
+            <span>Partial: <strong style={{ color: "#fbbf24" }}>AED {formatAED(stats.revenueTracking.partialCollectedAED)}</strong> ({stats.revenueTracking.partialDealsCount})</span>
           </div>
-          {stats.revenueAED > 0 && (
+
+          {stats.revenueTracking.partialBalanceDueAED > 0 && (
+            <div style={{
+              marginTop: "0.75rem",
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+              borderRadius: "8px",
+              padding: "0.35rem 0.75rem",
+              fontSize: "0.75rem",
+              color: "#fbbf24",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}>
+              <span>⏳</span>
+              <span>Pending Balance Due: <strong>AED {formatAED(stats.revenueTracking.partialBalanceDueAED)}</strong></span>
+            </div>
+          )}
+
+          {stats.revenueTracking.totalCashCollectedAED > 0 && (
             <div className={styles.heroBadge}>▲ Revenue is live</div>
           )}
         </div>
 
-        {/* ── Quick stats ─────────────────────────────────────────── */}
-        <div className={styles.statsRow}>
-          <div className={styles.statCard}>
-            <div className={`${styles.statVal} ${styles.purpleVal}`}>{stats.totalLeads}</div>
-            <div className={styles.statLbl}>Total Leads Joined</div>
+        {/* ── Quick Stats: Total Leads, Follow-Up Leads, New Leads, Win Rate ── */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: "0.75rem",
+          marginTop: "1rem",
+        }}>
+          {/* Total Leads with Dynamic Temperature Breakdown */}
+          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div>
+              <div className={`${styles.statVal} ${styles.purpleVal}`}>{stats.totalLeads}</div>
+              <div className={styles.statLbl}>Total Leads Joined</div>
+            </div>
+            <div style={{
+              display: "flex",
+              gap: "0.35rem",
+              marginTop: "0.5rem",
+              fontSize: "0.65rem",
+              fontWeight: 700,
+              flexWrap: "wrap",
+            }}>
+              <span style={{ color: "#f87171" }} title="Hot Leads">🔥 {stats.temperatureBreakdown.HOT}</span>
+              <span style={{ color: "#fbbf24" }} title="Warm Leads">☀️ {stats.temperatureBreakdown.WARM}</span>
+              <span style={{ color: "#38bdf8" }} title="Cold Leads">❄️ {stats.temperatureBreakdown.COLD}</span>
+            </div>
           </div>
-          <div className={styles.statCard}>
-            <div className={`${styles.statVal} ${styles.blueVal}`}>{winRate}%</div>
-            <div className={styles.statLbl}>Win Rate</div>
+
+          {/* Follow-Up Leads */}
+          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div>
+              <div className={styles.statVal} style={{ color: "#fb923c" }}>{stats.followUpLeadsCount}</div>
+              <div className={styles.statLbl}>Follow-Up Leads</div>
+            </div>
+            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
+              Active scheduling
+            </span>
+          </div>
+
+          {/* New Leads */}
+          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div>
+              <div className={styles.statVal} style={{ color: "#60a5fa" }}>{stats.newLeadsCount}</div>
+              <div className={styles.statLbl}>New Leads</div>
+            </div>
+            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
+              Fresh in pipeline
+            </span>
+          </div>
+
+          {/* Win Rate */}
+          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div>
+              <div className={`${styles.statVal} ${styles.blueVal}`}>{winRate}%</div>
+              <div className={styles.statLbl}>Win Rate</div>
+            </div>
+            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
+              {stats.closedLeads} closed deals
+            </span>
+          </div>
+        </div>
+
+        {/* ── Today's Overview Section ───────────────────────────── */}
+        <div style={{
+          background: "linear-gradient(180deg, #101626 0%, #0a0e1a 100%)",
+          border: "1px solid rgba(32, 201, 151, 0.2)",
+          borderRadius: "16px",
+          padding: "1.1rem",
+          marginTop: "1.25rem",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+        }}>
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: "0.85rem",
+            paddingBottom: "0.6rem",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <span style={{ fontSize: "1.1rem" }}>⚡</span>
+              <span style={{ color: "#f1f0ff", fontWeight: 800, fontSize: "0.95rem" }}>
+                Today&apos;s Overview
+              </span>
+            </div>
+            {/* Dynamic Today Temperature Breakdown */}
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              background: "rgba(255, 255, 255, 0.04)",
+              padding: "0.2rem 0.55rem",
+              borderRadius: "99px",
+              fontSize: "0.68rem",
+              fontWeight: 700,
+            }}>
+              <span style={{ color: "#8b8aa8", marginRight: "0.2rem" }}>Today:</span>
+              <span style={{ color: "#f87171" }} title="Today's Hot Leads">🔥 {stats.todayOverview.temperatureBreakdown.HOT}</span>
+              <span style={{ color: "#fbbf24" }} title="Today's Warm Leads">☀️ {stats.todayOverview.temperatureBreakdown.WARM}</span>
+              <span style={{ color: "#38bdf8" }} title="Today's Cold Leads">❄️ {stats.todayOverview.temperatureBreakdown.COLD}</span>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem" }}>
+            <div style={{
+              background: "rgba(249, 115, 22, 0.08)",
+              border: "1px solid rgba(249, 115, 22, 0.2)",
+              borderRadius: "10px",
+              padding: "0.75rem",
+              textAlign: "center",
+            }}>
+              <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#fb923c" }}>
+                {stats.todayOverview.todayFollowUps}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#d1d5db", fontWeight: 600, marginTop: "0.15rem" }}>
+                Today&apos;s Follow-Ups
+              </div>
+            </div>
+
+            <div style={{
+              background: "rgba(96, 165, 250, 0.08)",
+              border: "1px solid rgba(96, 165, 250, 0.2)",
+              borderRadius: "10px",
+              padding: "0.75rem",
+              textAlign: "center",
+            }}>
+              <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#60a5fa" }}>
+                {stats.todayOverview.todayNewLeads}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#d1d5db", fontWeight: 600, marginTop: "0.15rem" }}>
+                Today&apos;s New Leads
+              </div>
+            </div>
+
+            <div style={{
+              background: "rgba(32, 201, 151, 0.08)",
+              border: "1px solid rgba(32, 201, 151, 0.2)",
+              borderRadius: "10px",
+              padding: "0.75rem",
+              textAlign: "center",
+            }}>
+              <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#20C997" }}>
+                {stats.todayOverview.todayClosedDeals}
+              </div>
+              <div style={{ fontSize: "0.7rem", color: "#d1d5db", fontWeight: 600, marginTop: "0.15rem" }}>
+                Today&apos;s Closed Deals
+              </div>
+            </div>
           </div>
         </div>
 

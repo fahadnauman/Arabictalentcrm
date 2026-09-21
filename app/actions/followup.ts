@@ -17,6 +17,7 @@ export interface CreateFollowUpInput {
   leadId: string;
   scheduledAt: string | Date;
   note: string;
+  priority?: string;
 }
 
 export async function createFollowUp(input: CreateFollowUpInput) {
@@ -66,6 +67,7 @@ export async function createFollowUp(input: CreateFollowUpInput) {
       agentId: user.id,
       scheduledAt: scheduledDate,
       note: input.note.trim(),
+      priority: input.priority || "MEDIUM",
       status: "PENDING",
     },
     include: {
@@ -190,4 +192,190 @@ export async function completeFollowUp(followUpId: string) {
   revalidatePath(`/dashboard/agent/chat/${existing.leadId}`);
 
   return { success: true };
+}
+
+// ── Log Follow-Up Outcome (Chat Box 'Update Follow-Up' action) ───────────
+export interface FollowUpOutcomeInput {
+  leadId:           string;
+  followUpId?:      string | null;
+  outcomeStatus:    string; // 'Not Responding' | 'Interested' | 'Callback Requested' | custom
+  outcomeNote:      string;
+  nextScheduledAt?: string | Date | null;
+  priority?:        string;
+}
+
+export async function logFollowUpOutcome(input: FollowUpOutcomeInput) {
+  const user = await getAuthUser();
+  if (!user) throw new Error("Unauthorized");
+
+  const lead = await prisma.lead.findUnique({
+    where: { id: input.leadId },
+    select: { id: true, name: true, phone: true, assignedAgentId: true, status: true },
+  });
+
+  if (!lead) throw new Error("Lead not found.");
+  if (user.role === "AGENT" && lead.assignedAgentId && lead.assignedAgentId !== user.id) {
+    throw new Error("You are not assigned to this lead.");
+  }
+
+  const now = new Date();
+
+  // Mark active/pending follow-up as completed with outcome
+  if (input.followUpId) {
+    await prisma.followUp.update({
+      where: { id: input.followUpId },
+      data: {
+        status: "COMPLETED",
+        countermeasure: `Outcome: ${input.outcomeStatus} - ${input.outcomeNote.trim()}`,
+      },
+    });
+  } else {
+    await prisma.followUp.updateMany({
+      where: { leadId: lead.id, status: "PENDING" },
+      data: { status: "COMPLETED" },
+    });
+  }
+
+  // Create next follow-up if scheduled
+  let nextFollowUp = null;
+  if (input.nextScheduledAt) {
+    const nextDate = new Date(input.nextScheduledAt);
+    if (!isNaN(nextDate.getTime())) {
+      nextFollowUp = await prisma.followUp.create({
+        data: {
+          leadId: lead.id,
+          agentId: user.id,
+          scheduledAt: nextDate,
+          note: `[${input.outcomeStatus}] ${input.outcomeNote.trim()}`,
+          priority: input.priority || "MEDIUM",
+          status: "PENDING",
+        },
+      });
+    }
+  }
+
+  // Determine if lead status should update based on outcome
+  let mappedLeadStatus: LeadStatus | null = null;
+  const outcomeLower = input.outcomeStatus.toLowerCase();
+  if (outcomeLower.includes("not respond") || outcomeLower.includes("no response")) {
+    mappedLeadStatus = LeadStatus.NO_RESPONSE;
+  } else if (outcomeLower.includes("interested")) {
+    mappedLeadStatus = LeadStatus.INTERESTED;
+  } else if (outcomeLower.includes("callback") || nextFollowUp) {
+    mappedLeadStatus = LeadStatus.FOLLOWUP;
+  }
+
+  if (mappedLeadStatus && lead.status !== LeadStatus.CLOSED) {
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        status: mappedLeadStatus,
+        statusChangedAt: now,
+      },
+    });
+  }
+
+  // Record in LeadStatusHistory
+  try {
+    await prisma.leadStatusHistory.create({
+      data: {
+        leadId: lead.id,
+        fromStatus: lead.status,
+        toStatus: mappedLeadStatus || lead.status,
+        changedById: user.id,
+        note: `Follow-up Outcome: ${input.outcomeStatus} — ${input.outcomeNote.trim()}`,
+      },
+    });
+  } catch (e) {}
+
+  // Explicitly log into AuditLog
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "lead.followup_outcome",
+        entityType: "Lead",
+        entityId: lead.id,
+        metadata: {
+          leadId: lead.id,
+          leadName: lead.name,
+          outcomeStatus: input.outcomeStatus,
+          outcomeNote: input.outcomeNote.trim(),
+          nextScheduledAt: input.nextScheduledAt ? new Date(input.nextScheduledAt).toISOString() : null,
+          agentName: user.name,
+        },
+      },
+    });
+  } catch (e) {}
+
+  revalidatePath(`/dashboard/agent/chat/${lead.id}`);
+  revalidatePath("/dashboard/agent/inbox");
+  revalidatePath("/dashboard/agent");
+  revalidatePath("/dashboard/admin");
+
+  return { success: true, nextFollowUp };
+}
+
+// ── Overdue Accountability: Complete Overdue Follow-Up with Reason & Countermeasure ──
+export async function resolveOverdueFollowUp(input: {
+  followUpId: string;
+  overdueReason: string;
+  countermeasure: string;
+}) {
+  const user = await getAuthUser();
+  if (!user) throw new Error("Unauthorized");
+
+  if (!input.overdueReason?.trim() || !input.countermeasure?.trim()) {
+    throw new Error("Reason for delay and countermeasure are mandatory.");
+  }
+
+  const existing = await prisma.followUp.findUnique({
+    where: { id: input.followUpId },
+    include: { lead: { select: { id: true, name: true, phone: true } } },
+  });
+
+  if (!existing) throw new Error("Follow-up not found.");
+  if (user.role === "AGENT" && existing.agentId !== user.id) {
+    throw new Error("You can only resolve your own follow-up.");
+  }
+
+  const now = new Date();
+
+  const updated = await prisma.followUp.update({
+    where: { id: input.followUpId },
+    data: {
+      status: "COMPLETED",
+      overdueReason: input.overdueReason.trim(),
+      countermeasure: input.countermeasure.trim(),
+    },
+  });
+
+  // Explicitly log in AuditLog for Admin Audit Trail
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId: user.id,
+        action: "followup.overdue_resolved",
+        entityType: "FollowUp",
+        entityId: existing.id,
+        metadata: {
+          followUpId: existing.id,
+          leadId: existing.leadId,
+          leadName: existing.lead.name,
+          overdueReason: input.overdueReason.trim(),
+          countermeasure: input.countermeasure.trim(),
+          scheduledAt: existing.scheduledAt.toISOString(),
+          resolvedAt: now.toISOString(),
+          agentName: user.name,
+        },
+      },
+    });
+  } catch (e) {}
+
+  revalidatePath(`/dashboard/agent/chat/${existing.leadId}`);
+  revalidatePath("/dashboard/agent/inbox");
+  revalidatePath("/dashboard/agent");
+  revalidatePath("/dashboard/admin");
+
+  return { success: true, followUp: updated };
 }

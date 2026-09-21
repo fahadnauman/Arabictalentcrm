@@ -166,10 +166,12 @@ export async function getAgentTasks(agentId: string) {
     dueDate: t.dueDate,
     createdAt: t.createdAt,
     completedAt: t.completedAt,
+    overdueReason: t.overdueReason,
+    countermeasure: t.countermeasure,
   }));
 }
 
-export async function updateTaskStatus(taskId: string, status: "PENDING" | "IN_PROGRESS" | "COMPLETED") {
+export async function updateTaskStatus(taskId: string, status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "OVERDUE") {
   const user = await getAuthUser();
   if (!user) throw new Error("Unauthorised");
 
@@ -196,4 +198,104 @@ export async function updateTaskStatus(taskId: string, status: "PENDING" | "IN_P
   revalidatePath("/dashboard/agent");
 
   return { success: true, status: updated.status };
+}
+
+// ── Overdue Accountability: Complete Overdue Task with Reason & Countermeasure ──
+export interface ResolveOverdueTaskInput {
+  taskId:         string;
+  overdueReason:  string;
+  countermeasure: string;
+}
+
+export async function resolveOverdueTask(input: ResolveOverdueTaskInput) {
+  const user = await getAuthUser();
+  if (!user) throw new Error("Unauthorised");
+
+  if (!input.overdueReason?.trim() || !input.countermeasure?.trim()) {
+    throw new Error("Both reason for delay and countermeasure taken are mandatory.");
+  }
+
+  const task = await prisma.taskAssignment.findUnique({
+    where: { id: input.taskId },
+  });
+
+  if (!task) throw new Error("Task not found");
+
+  if (user.role !== "ADMIN" && task.receiverId && task.receiverId !== user.id && !task.isBroadcast) {
+    throw new Error("Unauthorized to update this task.");
+  }
+
+  const now = new Date();
+
+  const updated = await prisma.taskAssignment.update({
+    where: { id: input.taskId },
+    data: {
+      status:         "COMPLETED",
+      completedAt:    now,
+      overdueReason:  input.overdueReason.trim(),
+      countermeasure: input.countermeasure.trim(),
+    },
+  });
+
+  // Explicitly log into AuditLog for Admin Audit Trail
+  try {
+    await prisma.auditLog.create({
+      data: {
+        actorId:    user.id,
+        action:     "task.overdue_resolved",
+        entityType: "TaskAssignment",
+        entityId:   task.id,
+        metadata: {
+          taskId:         task.id,
+          taskTitle:      task.title || task.message.slice(0, 40),
+          overdueReason:  input.overdueReason.trim(),
+          countermeasure: input.countermeasure.trim(),
+          dueDate:        task.dueDate ? task.dueDate.toISOString() : null,
+          resolvedAt:     now.toISOString(),
+          agentName:      user.name,
+        },
+      },
+    });
+  } catch (logErr) {
+    console.warn("Failed to create overdue task audit log:", logErr);
+  }
+
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard/agent");
+
+  return { success: true, task: updated };
+}
+
+// ── Long-term Calendar Tasks Query for 'View More' Modal ────────────────
+export async function getAgentCalendarTasks(agentId: string) {
+  const user = await getAuthUser();
+  if (!user) return [];
+
+  const tasks = await prisma.taskAssignment.findMany({
+    where: {
+      OR: [
+        { receiverId: agentId },
+        { isBroadcast: true },
+      ],
+    },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+    include: {
+      sender: { select: { id: true, name: true } },
+    },
+  });
+
+  return tasks.map((t) => ({
+    id:             t.id,
+    title:          t.title,
+    message:        t.message,
+    priority:       t.priority,
+    status:         t.status,
+    isBroadcast:    t.isBroadcast,
+    senderName:     t.sender?.name || "Admin",
+    dueDate:        t.dueDate,
+    createdAt:      t.createdAt,
+    completedAt:    t.completedAt,
+    overdueReason:  t.overdueReason,
+    countermeasure: t.countermeasure,
+  }));
 }

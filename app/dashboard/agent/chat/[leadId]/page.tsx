@@ -10,6 +10,7 @@ import CallLeadButton               from "./CallLeadButton";
 import RefreshMessagesButton        from "./RefreshMessagesButton";
 import TransferLeadButton           from "./TransferLeadButton";
 import TemperatureToggle            from "./TemperatureToggle";
+import SetFollowUpButton            from "./SetFollowUpButton";
 import FollowUpAlertWatcher        from "@/app/dashboard/agent/FollowUpAlertWatcher";
 import GlobalLeadNotificationWatcher from "@/app/dashboard/agent/GlobalLeadNotificationWatcher";
 import { prisma }                   from "@/lib/prisma";
@@ -26,11 +27,11 @@ const STATUS_META: Record<string, { label: string; color: string }> = {
   NEW_LEAD:       { label: "New Lead",        color: "#60a5fa" },
   THINKING:       { label: "Thinking",        color: "#3b82f6" },
   INTERESTED:     { label: "Interested",      color: "#20C997" },
-  FOLLOWUP:       { label: "Followup",        color: "#fb923c" },
+  FOLLOWUP:       { label: "Follow-Up",       color: "#fb923c" },
   DEMO_ATTENDED:  { label: "Demo Attended",   color: "#c084fc" },
   NO_RESPONSE:    { label: "No Response",     color: "#9ca3af" },
   NOT_INTERESTED: { label: "Not Interested",  color: "#f87171" },
-  CLOSED:         { label: "Closed ✓",        color: "#fbbf24" },
+  CLOSED:         { label: "Closed",          color: "#20C997" },
 };
 
 // ── Page ──────────────────────────────────────────────────────────────────
@@ -143,18 +144,42 @@ export default async function ChatPage({
       ══════════════════════════════════════════════════════════ */}
       <div className={styles.chatHeader} style={{ flexShrink: 0 }}>
 
-        <div className={styles.chatHeaderInner}>
-          <div className={styles.leadAvatar}>{initials(lead.name)}</div>
+        <div className={styles.chatHeaderInner} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap", padding: "0.75rem 1rem" }}>
+          {/* Left: Lead Identity (Avatar, Name, and Temperature Toggle cleanly side-by-side) */}
+          <div style={{ display: "flex", alignItems: "center", gap: "0.65rem", minWidth: 0, flex: "1 1 auto" }}>
+            <div className={styles.leadAvatar}>{initials(lead.name)}</div>
 
-          <div className={styles.chatHeaderInfo}>
-            <div className={styles.chatLeadName}>{lead.name}</div>
-            <div className={styles.chatLeadMeta}>
-              {lead.phone}{lead.company ? ` · ${lead.company}` : ""}
+            <div className={styles.chatHeaderInfo} style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                <div className={styles.chatLeadName} style={{ wordBreak: "break-word" }}>
+                  {lead.name}
+                </div>
+                <TemperatureToggle leadId={lead.id} initialTemperature={lead.temperature} />
+              </div>
+              <div className={styles.chatLeadMeta}>
+                {lead.phone}{lead.company ? ` · ${lead.company}` : ""}
+              </div>
             </div>
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginLeft: "auto" }}>
-            <TemperatureToggle leadId={lead.id} initialTemperature={lead.temperature} />
+          {/* Right: Horizontally Scrollable Action Row (Slide sideways without cutting off) */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.45rem",
+              overflowX: "auto",
+              whiteSpace: "nowrap",
+              padding: "0.25rem 0",
+              maxWidth: "100%",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+              flexShrink: 0,
+            }}
+            className={styles.scrollHide}
+          >
+            {/* Dedicated Unobstructed Set Follow-Up Button */}
+            <SetFollowUpButton leadId={lead.id} leadName={lead.name} />
             <TransferLeadButton
               leadId={lead.id}
               leadName={lead.name}
@@ -162,12 +187,20 @@ export default async function ChatPage({
               initialAgents={activeAgents}
             />
             <RefreshMessagesButton />
-            <span style={{
-              fontSize: "0.62rem", fontWeight: 700, padding: "0.2rem 0.55rem",
-              borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.05em",
-              border: `1px solid ${meta.color}40`, background: `${meta.color}15`, color: meta.color,
-              flexShrink: 0,
-            }}>
+            <span
+              style={{
+                fontSize: "0.62rem",
+                fontWeight: 700,
+                padding: "0.25rem 0.55rem",
+                borderRadius: 999,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                border: `1px solid ${meta.color}40`,
+                background: `${meta.color}15`,
+                color: meta.color,
+                flexShrink: 0,
+              }}
+            >
               {meta.label}
             </span>
           </div>

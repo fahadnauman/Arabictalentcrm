@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -75,7 +76,9 @@ export default async function AgentInboxPage() {
       </header>
 
       <div className={styles.body}>
-        <InboxClient initialLeads={leads} activeCount={active} />
+        <Suspense fallback={<div style={{ textAlign: "center", color: "var(--dim)", padding: "3rem 0", fontSize: "0.85rem" }}>Loading leads...</div>}>
+          <InboxClient initialLeads={leads} activeCount={active} />
+        </Suspense>
       </div>
       {/* ── Bottom navigation ──────────────────────────────────────── */}
       <AgentBottomNav />

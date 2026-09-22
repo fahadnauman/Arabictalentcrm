@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import styles from "../agent.module.css";
 
 const FOLDERS = [
@@ -52,37 +53,39 @@ const IconChevron = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="
 const LeadCard = React.memo(({ lead }: { lead: any }) => {
   const meta   = STATUS_META[lead.status] ?? STATUS_META["NEW_LEAD"];
   const chance = SALE_CHANCE[lead.status] ?? 35;
-  const initials = lead.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
+  const initials = (lead.name || "U").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
   const nextFollowUp = lead.followUps?.[0];
 
   return (
     <Link
       href={`/dashboard/agent/chat/${lead.id}`}
       className={`${styles.leadCard} transition-all duration-200 ease-out`}
-      style={
-        nextFollowUp
+      style={{
+        position: "relative",
+        paddingRight: "2.2rem",
+        ...(nextFollowUp
           ? { borderColor: "rgba(249, 115, 22, 0.45)", boxShadow: "0 0 12px rgba(249, 115, 22, 0.2)" }
           : lead.status === "INTERESTED"
           ? { borderColor: "#20C997", boxShadow: "0 0 12px rgba(32, 201, 151, 0.4)" }
-          : {}
-      }
+          : {}),
+      }}
     >
       <div className={styles.leadCardTop}>
         {/* Avatar + info */}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", flex: 1 }}>
-          <div className={styles.leadAvatar} style={{ width: 38, height: 38, fontSize: "0.8rem" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.75rem", flex: 1, minWidth: 0 }}>
+          <div className={styles.leadAvatar} style={{ width: 38, height: 38, fontSize: "0.8rem", flexShrink: 0 }}>
             {initials}
           </div>
-          <div>
-            <div className={styles.leadName}>{lead.name}</div>
-            {lead.company && <div className={styles.leadCompany}>{lead.company}</div>}
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div className={styles.leadName} style={{ wordBreak: "break-word" }}>{lead.name}</div>
+            {lead.company && <div className={styles.leadCompany} style={{ wordBreak: "break-word" }}>{lead.company}</div>}
             <div className={styles.leadPhone}>{lead.phone}</div>
           </div>
         </div>
         {/* Right side */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.3rem", flexShrink: 0, marginLeft: "0.5rem" }}>
           <span className={`${styles.pill} ${meta.pill}`}>{meta.label}</span>
-          <span style={{ fontSize: "0.65rem", color: "var(--dim)" }}>{timeAgo(lead.updatedAt)}</span>
+          <span style={{ fontSize: "0.65rem", color: "var(--dim)", whiteSpace: "nowrap" }}>{timeAgo(lead.updatedAt)}</span>
         </div>
       </div>
 
@@ -92,6 +95,7 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
           style={{
             display: "flex",
             alignItems: "center",
+            flexWrap: "wrap",
             gap: "0.4rem",
             marginTop: "0.4rem",
             padding: "0.3rem 0.55rem",
@@ -139,7 +143,7 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
       </div>
 
       {/* Arrow */}
-      <div style={{ position: "absolute", right: "1rem", top: "50%", transform: "translateY(-50%)", color: "var(--dim)" }}>
+      <div style={{ position: "absolute", right: "0.9rem", top: "50%", transform: "translateY(-50%)", color: "var(--dim)" }}>
         <IconChevron />
       </div>
     </Link>
@@ -148,7 +152,31 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
 LeadCard.displayName = "LeadCard";
 
 export default function InboxClient({ initialLeads, activeCount }: { initialLeads: any[], activeCount: number }) {
-  const [filter, setFilter] = useState("ALL");
+  const searchParams = useSearchParams();
+  const filterParam = searchParams.get("filter")?.toLowerCase();
+
+  const resolveFilterKey = (param?: string | null) => {
+    if (!param) return "ALL";
+    if (param === "follow-up" || param === "followup" || param === "follow_ups" || param === "followups") {
+      return "FOLLOW_UPS";
+    }
+    if (param === "new" || param === "new_lead" || param === "new-lead" || param === "newleads") {
+      return "NEW_LEAD";
+    }
+    if (param === "interested") return "INTERESTED";
+    if (param === "thinking") return "THINKING";
+    if (param === "closed") return "CLOSED";
+    if (param === "all") return "ALL";
+    return "ALL";
+  };
+
+  const [filter, setFilter] = useState(() => resolveFilterKey(filterParam));
+
+  useEffect(() => {
+    if (filterParam) {
+      setFilter(resolveFilterKey(filterParam));
+    }
+  }, [filterParam]);
 
   const filteredLeads = useMemo(() => {
     if (filter === "ALL") return initialLeads;
@@ -164,7 +192,16 @@ export default function InboxClient({ initialLeads, activeCount }: { initialLead
     <>
       {/* ── Folder Filters ────────────────────────────────────── */}
       <div style={{ height: "1rem" }} />
-      <div style={{ display: "flex", gap: "0.5rem", overflowX: "auto", paddingBottom: "0.5rem" }} className={styles.scrollHide}>
+      <div
+        style={{
+          display: "flex",
+          gap: "0.5rem",
+          overflowX: "auto",
+          paddingBottom: "0.5rem",
+          WebkitOverflowScrolling: "touch",
+        }}
+        className={styles.scrollHide}
+      >
         {FOLDERS.map((folder) => {
           const isActive = filter === folder.key;
           return (
@@ -184,7 +221,8 @@ export default function InboxClient({ initialLeads, activeCount }: { initialLead
                 boxShadow: isActive ? "0 0 10px rgba(32, 201, 151, 0.3)" : "none",
                 transition: "all 0.2s ease",
                 cursor: "pointer",
-                outline: "none"
+                outline: "none",
+                flexShrink: 0,
               }}
             >
               {folder.label}
@@ -198,7 +236,7 @@ export default function InboxClient({ initialLeads, activeCount }: { initialLead
         <span className={styles.sectionTitle}>
           {FOLDERS.find(f => f.key === filter)?.label || "All Leads"}
         </span>
-        <span className={styles.sectionCount}>{activeCount} active total</span>
+        <span className={styles.sectionCount}>{filteredLeads.length} leads</span>
       </div>
 
       {/* ── Lead cards ─────────────────────────────────────────── */}

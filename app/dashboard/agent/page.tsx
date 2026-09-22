@@ -9,7 +9,12 @@ import AttendanceControls          from "./AttendanceControls";
 import AgentTaskPanel              from "./AgentTaskPanel";
 import DailyBriefingModal          from "./DailyBriefingModal";
 import AgentBottomNav            from "./BottomNav";
-import { LiveNewLeadsStatCard, LiveTodayNewLeadsCard } from "./AgentLiveStatsCards";
+import {
+  InteractiveTotalLeadsCard,
+  InteractiveFollowUpLeadsCard,
+  LiveNewLeadsStatCard,
+  LiveTodayNewLeadsCard,
+} from "./AgentLiveStatsCards";
 import styles from "./agent.module.css";
 
 // ── CRM logo icon ──────────────────────────────────────────────────────────
@@ -136,38 +141,16 @@ export default async function AgentHomePage() {
           gap: "0.75rem",
           marginTop: "1rem",
         }}>
-          {/* Total Leads with Dynamic Temperature Breakdown */}
-          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div>
-              <div className={`${styles.statVal} ${styles.purpleVal}`}>{stats.totalLeads}</div>
-              <div className={styles.statLbl}>Total Leads Joined</div>
-            </div>
-            <div style={{
-              display: "flex",
-              gap: "0.35rem",
-              marginTop: "0.5rem",
-              fontSize: "0.65rem",
-              fontWeight: 700,
-              flexWrap: "wrap",
-            }}>
-              <span style={{ color: "#f87171" }} title="Hot Leads">🔥 {stats.temperatureBreakdown.HOT}</span>
-              <span style={{ color: "#fbbf24" }} title="Warm Leads">☀️ {stats.temperatureBreakdown.WARM}</span>
-              <span style={{ color: "#38bdf8" }} title="Cold Leads">❄️ {stats.temperatureBreakdown.COLD}</span>
-            </div>
-          </div>
+          {/* Total Leads (Interactive -> /dashboard/agent/inbox) */}
+          <InteractiveTotalLeadsCard
+            totalLeads={stats.totalLeads}
+            temperatureBreakdown={stats.temperatureBreakdown}
+          />
 
-          {/* Follow-Up Leads */}
-          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div>
-              <div className={styles.statVal} style={{ color: "#fb923c" }}>{stats.followUpLeadsCount}</div>
-              <div className={styles.statLbl}>Follow-Up Leads</div>
-            </div>
-            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
-              Active scheduling
-            </span>
-          </div>
+          {/* Follow-Up Leads (Interactive -> /dashboard/agent/inbox?filter=follow-up) */}
+          <InteractiveFollowUpLeadsCard count={stats.followUpLeadsCount} />
 
-          {/* New Leads (Live Real-Time Counter) */}
+          {/* New Leads (Live Real-Time Counter & Interactive -> /dashboard/agent/inbox?filter=new) */}
           <LiveNewLeadsStatCard initialCount={stats.newLeadsCount} />
 
           {/* Win Rate */}

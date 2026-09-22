@@ -1,13 +1,112 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./agent.module.css";
+
+interface InteractiveTotalLeadsCardProps {
+  totalLeads: number;
+  temperatureBreakdown: { HOT: number; WARM: number; COLD: number };
+}
+
+export function InteractiveTotalLeadsCard({
+  totalLeads,
+  temperatureBreakdown,
+}: InteractiveTotalLeadsCardProps) {
+  const router = useRouter();
+
+  return (
+    <div
+      onClick={() => router.push("/dashboard/agent/inbox")}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        cursor: "pointer",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "scale(1.02)";
+        e.currentTarget.style.borderColor = "rgba(167, 139, 250, 0.4)";
+        e.currentTarget.style.boxShadow = "0 6px 20px rgba(124, 58, 237, 0.2)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "scale(1)";
+        e.currentTarget.style.borderColor = "";
+        e.currentTarget.style.boxShadow = "";
+      }}
+      title="View all leads in Inbox"
+    >
+      <div>
+        <div className={`${styles.statVal} ${styles.purpleVal}`}>{totalLeads}</div>
+        <div className={styles.statLbl}>Total Leads Joined</div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: "0.35rem",
+          marginTop: "0.5rem",
+          fontSize: "0.65rem",
+          fontWeight: 700,
+          flexWrap: "wrap",
+        }}
+      >
+        <span style={{ color: "#f87171" }} title="Hot Leads">🔥 {temperatureBreakdown.HOT}</span>
+        <span style={{ color: "#fbbf24" }} title="Warm Leads">☀️ {temperatureBreakdown.WARM}</span>
+        <span style={{ color: "#38bdf8" }} title="Cold Leads">❄️ {temperatureBreakdown.COLD}</span>
+      </div>
+    </div>
+  );
+}
+
+interface InteractiveFollowUpLeadsCardProps {
+  count: number;
+}
+
+export function InteractiveFollowUpLeadsCard({ count }: InteractiveFollowUpLeadsCardProps) {
+  const router = useRouter();
+
+  return (
+    <div
+      onClick={() => router.push("/dashboard/agent/inbox?filter=follow-up")}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "space-between",
+        cursor: "pointer",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "scale(1.02)";
+        e.currentTarget.style.borderColor = "rgba(251, 146, 60, 0.5)";
+        e.currentTarget.style.boxShadow = "0 6px 20px rgba(251, 146, 60, 0.25)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "scale(1)";
+        e.currentTarget.style.borderColor = "";
+        e.currentTarget.style.boxShadow = "";
+      }}
+      title="View follow-up leads in Inbox"
+    >
+      <div>
+        <div className={styles.statVal} style={{ color: "#fb923c" }}>{count}</div>
+        <div className={styles.statLbl}>Follow-Up Leads</div>
+      </div>
+      <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
+        Active scheduling ➔
+      </span>
+    </div>
+  );
+}
 
 interface LiveNewLeadsStatCardProps {
   initialCount: number;
 }
 
 export function LiveNewLeadsStatCard({ initialCount }: LiveNewLeadsStatCardProps) {
+  const router = useRouter();
   const [count, setCount] = useState(initialCount);
   const [highlight, setHighlight] = useState(false);
 
@@ -28,15 +127,28 @@ export function LiveNewLeadsStatCard({ initialCount }: LiveNewLeadsStatCardProps
 
   return (
     <div
-      className={styles.statCard}
+      onClick={() => router.push("/dashboard/agent/inbox?filter=new")}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
       style={{
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        transition: "all 0.3s ease",
+        cursor: "pointer",
+        transition: "transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease",
         borderColor: highlight ? "#60a5fa" : undefined,
         boxShadow: highlight ? "0 0 16px rgba(96, 165, 250, 0.4)" : undefined,
       }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.transform = "scale(1.02)";
+        e.currentTarget.style.borderColor = "rgba(96, 165, 250, 0.5)";
+        e.currentTarget.style.boxShadow = "0 6px 20px rgba(96, 165, 250, 0.25)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.transform = "scale(1)";
+        e.currentTarget.style.borderColor = highlight ? "#60a5fa" : "";
+        e.currentTarget.style.boxShadow = highlight ? "0 0 16px rgba(96, 165, 250, 0.4)" : "";
+      }}
+      title="View new leads in Inbox"
     >
       <div>
         <div
@@ -66,7 +178,7 @@ export function LiveNewLeadsStatCard({ initialCount }: LiveNewLeadsStatCardProps
         <div className={styles.statLbl}>New Leads</div>
       </div>
       <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
-        Fresh in pipeline
+        Fresh in pipeline ➔
       </span>
     </div>
   );

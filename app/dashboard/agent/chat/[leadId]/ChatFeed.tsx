@@ -102,12 +102,30 @@ export default function ChatFeed({
   const [errorId, setErrorId]     = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "locked">("idle");
+  const [recordDuration, setRecordDuration] = useState(0);
+  const [cancelThresholdReached, setCancelThresholdReached] = useState(false);
   const bottomRef                 = useRef<HTMLDivElement>(null);
   const textareaRef               = useRef<HTMLTextAreaElement>(null);
   const fileInputRef              = useRef<HTMLInputElement>(null);
   const mediaRecorderRef          = useRef<MediaRecorder | null>(null);
   const audioChunksRef            = useRef<Blob[]>([]);
+  const mediaStreamRef            = useRef<MediaStream | null>(null);
+  const isCancelledRef            = useRef(false);
+  const recordTimerRef            = useRef<NodeJS.Timeout | null>(null);
+  const recordStartTimeRef        = useRef(0);
+  const pointerOriginRef          = useRef<{ x: number; y: number } | null>(null);
+  const activePointerIdRef        = useRef<number | null>(null);
+
+  // Clean up recording stream & timer on unmount
+  useEffect(() => {
+    return () => {
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      if (mediaStreamRef.current) {
+        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, []);
 
   // Auto-scroll to latest message
   const scrollDown = useCallback(() => {
@@ -190,12 +208,12 @@ export default function ChatFeed({
     };
   }, [leadId]);
 
-  // Auto-resize textarea
+  // Auto-resize textarea up to 5 lines
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value);
     const el = e.target;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    el.style.height = Math.min(el.scrollHeight, 125) + "px";
   }
 
   function handleSend(customBody?: string, retryId?: string) {
@@ -554,61 +572,142 @@ export default function ChatFeed({
     e.target.value = ""; // Reset input
   }
 
-  async function toggleRecording() {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-    } else {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // ── WhatsApp-style voice recorder ─────────────────────────────────────────
+  async function startVoiceRecording() {
+    try {
+      isCancelledRef.current = false;
+      setCancelThresholdReached(false);
+      setRecordDuration(0);
+      recordStartTimeRef.current = Date.now();
 
-        // Let the browser record in its native supported MIME type without forcing unsupported codecs
-        let preferredMime = "";
-        if (typeof MediaRecorder !== "undefined") {
-          if (MediaRecorder.isTypeSupported("audio/webm; codecs=opus")) {
-            preferredMime = "audio/webm; codecs=opus";
-          } else if (MediaRecorder.isTypeSupported("audio/webm")) {
-            preferredMime = "audio/webm";
-          } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-            preferredMime = "audio/mp4";
-          } else if (MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")) {
-            preferredMime = "audio/ogg; codecs=opus";
-          } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
-            preferredMime = "audio/ogg";
-          }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+
+      let preferredMime = "";
+      if (typeof MediaRecorder !== "undefined") {
+        if (MediaRecorder.isTypeSupported("audio/webm; codecs=opus")) {
+          preferredMime = "audio/webm; codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
+          preferredMime = "audio/webm";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          preferredMime = "audio/mp4";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")) {
+          preferredMime = "audio/ogg; codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
+          preferredMime = "audio/ogg";
+        }
+      }
+
+      const recorderOptions: MediaRecorderOptions = preferredMime ? { mimeType: preferredMime } : {};
+      const recorder = new MediaRecorder(stream, recorderOptions);
+      audioChunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        if (isCancelledRef.current) {
+          audioChunksRef.current = [];
+          return;
         }
 
-        const recorderOptions: MediaRecorderOptions = preferredMime ? { mimeType: preferredMime } : {};
-        const recorder = new MediaRecorder(stream, recorderOptions);
+        const actualMime = recorder.mimeType || preferredMime || "audio/webm";
+        const blob = new Blob(audioChunksRef.current, { type: actualMime });
         audioChunksRef.current = [];
 
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
+        let ext = "webm";
+        if (actualMime.includes("ogg")) ext = "ogg";
+        else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
+        else if (actualMime.includes("wav")) ext = "wav";
+        else if (actualMime.includes("webm")) ext = "webm";
 
-        recorder.onstop = () => {
-          // Native uncorrupted blob using the recorder's actual MIME type
-          const actualMime = recorder.mimeType || preferredMime || "audio/webm";
-          const blob = new Blob(audioChunksRef.current, { type: actualMime });
+        const filename = `voice_note.${ext}`;
+        processUpload(blob, filename, actualMime);
+      };
 
-          // Determine native extension
-          let ext = "webm";
-          if (actualMime.includes("ogg")) ext = "ogg";
-          else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
-          else if (actualMime.includes("wav")) ext = "wav";
-          else if (actualMime.includes("webm")) ext = "webm";
+      recorder.start(100);
+      mediaRecorderRef.current = recorder;
+      setRecordingState("recording");
 
-          const filename = `voice_note.${ext}`;
-          processUpload(blob, filename, actualMime);
-          stream.getTracks().forEach((track) => track.stop());
-        };
+      if (recordTimerRef.current) clearInterval(recordTimerRef.current);
+      recordTimerRef.current = setInterval(() => {
+        setRecordDuration((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Microphone access error:", err);
+      alert("Microphone access denied or unavailable.");
+      stopRecording(true);
+    }
+  }
 
-        recorder.start();
-        mediaRecorderRef.current = recorder;
-        setIsRecording(true);
-      } catch (err) {
-        console.error("Microphone access denied:", err);
-        alert("Microphone access denied or unavailable.");
+  function stopRecording(cancel: boolean) {
+    isCancelledRef.current = cancel;
+    if (recordTimerRef.current) {
+      clearInterval(recordTimerRef.current);
+      recordTimerRef.current = null;
+    }
+
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch (e) {
+        console.warn("Error stopping recorder:", e);
+      }
+    }
+
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+
+    setRecordingState("idle");
+    setRecordDuration(0);
+    setCancelThresholdReached(false);
+    pointerOriginRef.current = null;
+    activePointerIdRef.current = null;
+  }
+
+  function handlePointerDown(e: React.PointerEvent<HTMLButtonElement>) {
+    if (e.button !== 0) return;
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+      activePointerIdRef.current = e.pointerId;
+    } catch (err) {}
+    pointerOriginRef.current = { x: e.clientX, y: e.clientY };
+    startVoiceRecording();
+  }
+
+  function handlePointerMove(e: React.PointerEvent<HTMLDivElement | HTMLButtonElement>) {
+    if (!pointerOriginRef.current || recordingState !== "recording") return;
+    const deltaX = pointerOriginRef.current.x - e.clientX;
+    const deltaY = pointerOriginRef.current.y - e.clientY;
+
+    if (deltaX > 75) {
+      setCancelThresholdReached(true);
+    } else {
+      setCancelThresholdReached(false);
+    }
+
+    if (deltaY > 60) {
+      setRecordingState("locked");
+      if (activePointerIdRef.current != null) {
+        try {
+          e.currentTarget.releasePointerCapture(activePointerIdRef.current);
+        } catch (err) {}
+        activePointerIdRef.current = null;
+      }
+    }
+  }
+
+  function handlePointerUp(e: React.PointerEvent<HTMLDivElement | HTMLButtonElement>) {
+    if (recordingState === "locked") return;
+    if (recordingState === "recording") {
+      const elapsedMs = Date.now() - recordStartTimeRef.current;
+      if (cancelThresholdReached || elapsedMs < 500) {
+        stopRecording(true);
+      } else {
+        stopRecording(false);
       }
     }
   }
@@ -912,182 +1011,274 @@ export default function ChatFeed({
         <div ref={bottomRef} style={{ height: 1 }} />
       </div>
 
-      {/* ── Input bar ─────────────────────────────────────────── */}
-      <div className={chatStyles.inputBar} style={{ display: "flex", alignItems: "flex-end", gap: "0.5rem" }}>
-        
-        {/* Quick Menu Button */}
-        <div style={{ position: "relative" }}>
-          <button
-            onClick={() => setShowMenu(!showMenu)}
-            disabled={isPending || isUploading}
-            style={{
-              width: 36, height: 36, borderRadius: "50%",
-              background: "rgba(32,201,151,0.15)", border: "1px solid rgba(32,201,151,0.4)",
-              color: "#20C997", fontSize: "1.2rem", fontWeight: 700,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              cursor: "pointer", flexShrink: 0
-            }}
-          >
-            +
-          </button>
-          
-          {/* Quick Menu Popup */}
-          {showMenu && (
-            <div style={{
-              position: "absolute", bottom: "120%", left: 0,
-              background: "#0a0a14", border: "1px solid rgba(255,255,255,0.1)",
-              borderRadius: "12px", padding: "0.5rem",
-              display: "flex", flexDirection: "column", gap: "0.3rem",
-              minWidth: "160px", zIndex: 10,
-              boxShadow: "0 -4px 20px rgba(0,0,0,0.5)"
-            }}>
-              <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#8b8aa8", padding: "0.2rem 0.5rem", fontWeight: 700 }}>
-                Set Course Interest
-              </div>
-              {QUICK_COURSES.map(course => (
-                <button
-                  key={course}
-                  onClick={() => handleSetCourse(course)}
-                  style={{
-                    padding: "0.5rem", borderRadius: "8px", border: "none",
-                    background: "rgba(255,255,255,0.03)", color: "#f1f0ff",
-                    textAlign: "left", fontSize: "0.8rem", cursor: "pointer"
-                  }}
-                >
-                  {course}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Update Follow-Up Outcome Button */}
+      {/* ── Dedicated Follow-Up Action Bar (Above Input) ─────── */}
+      <div className={chatStyles.footerTopBar}>
         <button
           type="button"
           onClick={() => setShowFollowUpModal(true)}
           disabled={isPending || isUploading}
-          style={{
-            height: 36,
-            padding: "0 0.65rem",
-            borderRadius: "18px",
-            background: "rgba(251, 146, 60, 0.12)",
-            border: "1px solid rgba(251, 146, 60, 0.35)",
-            color: "#fb923c",
-            fontSize: "0.74rem",
-            fontWeight: 700,
-            display: "flex",
-            alignItems: "center",
-            gap: "0.3rem",
-            cursor: "pointer",
-            flexShrink: 0,
-            whiteSpace: "nowrap",
-            transition: "all 0.15s ease",
-          }}
+          className={chatStyles.updateFollowUpBtn}
           title="Update Follow-Up Status & Outcome (Not Responding, Interested, Callback...)"
         >
           <span>⏰</span>
-          <span>Update Follow-Up</span>
+          <span>Update Follow-Up Outcome</span>
         </button>
+      </div>
 
-        {/* Attachment Button */}
-        <input 
-          type="file" 
-          ref={fileInputRef} 
-          style={{ display: "none" }} 
-          onChange={handleFileChange}
-          accept="image/*,video/*,.mp4,audio/*,application/pdf"
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isPending || isUploading}
-          style={{
-            width: 36, height: 36, borderRadius: "50%",
-            background: "transparent", border: "none",
-            color: "#8b8aa8",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", flexShrink: 0, padding: 0
-          }}
-          title="Attach file"
-        >
-          {isUploading ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#20C997" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
-              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
-                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
-              </path>
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          )}
-        </button>
+      {/* ── Input bar ─────────────────────────────────────────── */}
+      <div className={chatStyles.inputBar}>
+        {recordingState !== "idle" ? (
+          /* WhatsApp-Style Recording Bar */
+          <div className={chatStyles.recordBar}>
+            <div className={chatStyles.recordLeft}>
+              <div className={chatStyles.pulseDot} />
+              <span className={chatStyles.recordTimer}>
+                {Math.floor(recordDuration / 60)}:{(recordDuration % 60).toString().padStart(2, "0")}
+              </span>
+            </div>
 
-        {/* Voice Note Button */}
-        <button
-          onClick={toggleRecording}
-          disabled={isPending || isUploading}
-          style={{
-            width: 36, height: 36, borderRadius: "50%",
-            background: isRecording ? "rgba(248,113,113,0.15)" : "transparent",
-            border: "none",
-            color: isRecording ? "#f87171" : "#8b8aa8",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "pointer", flexShrink: 0, padding: 0,
-            animation: isRecording ? "pulse 1.5s infinite" : "none"
-          }}
-          title={isRecording ? "Stop recording" : "Record voice note"}
-        >
-          {isRecording ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-            </svg>
-          )}
-        </button>
+            {recordingState === "recording" && (
+              <div
+                className={chatStyles.slideCancelHint}
+                style={{ color: cancelThresholdReached ? "#f87171" : "#9ca3af" }}
+              >
+                {cancelThresholdReached ? "Release to cancel" : "◀ Slide left to cancel"}
+              </div>
+            )}
 
-        <div className={chatStyles.inputWrap} style={{ flexGrow: 1 }}>
-          <textarea
-            ref={textareaRef}
-            value={text}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message… (Enter to send)"
-            rows={1}
-            disabled={isPending}
-            className={chatStyles.input}
-            maxLength={4000}
-          />
-          {charCount > 200 && (
-            <span className={chatStyles.charCount}>{charCount}/4000</span>
-          )}
-        </div>
+            {recordingState === "locked" && (
+              <button
+                type="button"
+                onClick={() => stopRecording(true)}
+                className={chatStyles.cancelRecordBtn}
+                title="Cancel voice recording"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                <span>Cancel</span>
+              </button>
+            )}
 
-        <button
-          onClick={() => handleSend()}
-          disabled={!text.trim() || isPending}
-          className={chatStyles.sendBtn}
-          title="Send (Enter)"
-        >
-          {isPending ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
-              <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
-                <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
-              </path>
-            </svg>
-          ) : (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="22" y1="2" x2="11" y2="13"/>
-              <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-            </svg>
-          )}
-        </button>
+            {recordingState === "locked" ? (
+              <button
+                type="button"
+                onClick={() => stopRecording(false)}
+                className={chatStyles.prominentSendBtn}
+                title="Send voice note"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            ) : (
+              <div
+                className={`${chatStyles.micRecordBtn} ${chatStyles.micRecordBtnActive}`}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={() => stopRecording(true)}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+                <div className={chatStyles.lockHint}>
+                  ▲ Slide up to lock
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Normal Input Mode with Expansive Field & Dynamic Send Button */
+          <>
+            {/* Quick Menu Button */}
+            <div style={{ position: "relative" }}>
+              <button
+                type="button"
+                onClick={() => setShowMenu(!showMenu)}
+                disabled={isPending || isUploading}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: "50%",
+                  background: "rgba(32,201,151,0.12)",
+                  border: "1px solid rgba(32,201,151,0.35)",
+                  color: "#20C997",
+                  fontSize: "1.3rem",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+                title="Quick actions"
+              >
+                +
+              </button>
+
+              {/* Quick Menu Popup */}
+              {showMenu && (
+                <div style={{
+                  position: "absolute",
+                  bottom: "125%",
+                  left: 0,
+                  background: "#0a0a14",
+                  border: "1px solid rgba(255,255,255,0.12)",
+                  borderRadius: "14px",
+                  padding: "0.6rem",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "0.35rem",
+                  minWidth: "190px",
+                  zIndex: 20,
+                  boxShadow: "0 -4px 24px rgba(0,0,0,0.6)",
+                }}>
+                  <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#8b8aa8", padding: "0.2rem 0.5rem", fontWeight: 700 }}>
+                    Quick Actions
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowMenu(false);
+                      setShowFollowUpModal(true);
+                    }}
+                    style={{
+                      padding: "0.5rem 0.65rem",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(251, 146, 60, 0.25)",
+                      background: "rgba(251, 146, 60, 0.1)",
+                      color: "#fb923c",
+                      textAlign: "left",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    <span>⏰</span>
+                    <span>Update Follow-Up</span>
+                  </button>
+
+                  <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#8b8aa8", padding: "0.4rem 0.5rem 0.2rem", fontWeight: 700 }}>
+                    Set Course Interest
+                  </div>
+                  {QUICK_COURSES.map((course) => (
+                    <button
+                      type="button"
+                      key={course}
+                      onClick={() => handleSetCourse(course)}
+                      style={{
+                        padding: "0.45rem 0.6rem",
+                        borderRadius: "8px",
+                        border: "none",
+                        background: "rgba(255,255,255,0.03)",
+                        color: "#f1f0ff",
+                        textAlign: "left",
+                        fontSize: "0.8rem",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {course}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Attachment Button */}
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              style={{ display: "none" }} 
+              onChange={handleFileChange}
+              accept="image/*,video/*,.mp4,audio/*,application/pdf"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isPending || isUploading}
+              className={chatStyles.iconActionBtn}
+              title="Attach file"
+            >
+              {isUploading ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#20C997" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
+                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+                  </path>
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+                </svg>
+              )}
+            </button>
+
+            {/* Expansive Text Input Field (Full Width Flexbox) */}
+            <div className={chatStyles.inputWrap}>
+              <textarea
+                ref={textareaRef}
+                value={text}
+                onChange={handleInput}
+                onKeyDown={handleKeyDown}
+                placeholder="Type a message… (Enter to send)"
+                rows={1}
+                disabled={isPending}
+                className={chatStyles.input}
+                maxLength={4000}
+              />
+              {charCount > 200 && (
+                <span className={chatStyles.charCount}>{charCount}/4000</span>
+              )}
+            </div>
+
+            {/* Dynamic Swap: Prominent Send Button if text typed, WhatsApp Mic if empty */}
+            {text.trim().length > 0 ? (
+              <button
+                type="button"
+                onClick={() => handleSend()}
+                disabled={isPending}
+                className={chatStyles.prominentSendBtn}
+                title="Send (Enter)"
+              >
+                {isPending ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
+                    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
+                      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+                    </path>
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"/>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                  </svg>
+                )}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={() => stopRecording(true)}
+                disabled={isPending || isUploading}
+                className={chatStyles.micRecordBtn}
+                title="Hold to record, slide left to cancel, swipe up to lock"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                  <line x1="12" y1="19" x2="12" y2="22" />
+                </svg>
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {showFollowUpModal && (

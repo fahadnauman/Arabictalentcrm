@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { logFollowUpOutcome } from "@/app/actions/followup";
 
@@ -27,6 +28,7 @@ export default function UpdateFollowUpModal({
   onClose,
   onUpdated,
 }: Props) {
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [selectedOutcome, setSelectedOutcome] = useState(OUTCOME_PRESETS[0].label);
   const [outcomeNote, setOutcomeNote] = useState("");
@@ -137,7 +139,7 @@ export default function UpdateFollowUpModal({
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: "1.25rem",
+            marginBottom: "1rem",
           }}
         >
           <div>
@@ -168,6 +170,57 @@ export default function UpdateFollowUpModal({
             }}
           >
             ✕
+          </button>
+        </div>
+
+        {/* Prominent Message Lead Navigation Card */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "0.7rem 0.9rem",
+            marginBottom: "1.2rem",
+            background: "rgba(124, 58, 237, 0.12)",
+            border: "1px solid rgba(124, 58, 237, 0.3)",
+            borderRadius: 12,
+            gap: "0.5rem",
+          }}
+        >
+          <div>
+            <div style={{ fontSize: "0.82rem", fontWeight: 700, color: "#ffffff" }}>
+              Need to contact right now?
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "#a78bfa" }}>
+              Direct chat screen for {leadName}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              router.push(`/dashboard/agent/chat/${leadId}`);
+            }}
+            style={{
+              background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)",
+              border: "1px solid rgba(167, 139, 250, 0.4)",
+              borderRadius: 8,
+              padding: "0.45rem 0.85rem",
+              color: "#ffffff",
+              fontSize: "0.78rem",
+              fontWeight: 800,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.35rem",
+              boxShadow: "0 2px 10px rgba(124, 58, 237, 0.4)",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            <span>Message Lead</span>
           </button>
         </div>
 

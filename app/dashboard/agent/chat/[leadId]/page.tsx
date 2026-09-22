@@ -11,6 +11,7 @@ import RefreshMessagesButton        from "./RefreshMessagesButton";
 import TransferLeadButton           from "./TransferLeadButton";
 import TemperatureToggle            from "./TemperatureToggle";
 import FollowUpAlertWatcher        from "@/app/dashboard/agent/FollowUpAlertWatcher";
+import GlobalLeadNotificationWatcher from "@/app/dashboard/agent/GlobalLeadNotificationWatcher";
 import { prisma }                   from "@/lib/prisma";
 import styles from "../../agent.module.css";
 
@@ -207,6 +208,7 @@ export default async function ChatPage({
       />
 
       <FollowUpAlertWatcher />
+      <GlobalLeadNotificationWatcher />
     </div>
   );
 }

@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import CreateTaskModal from "./CreateTaskModal";
 import OverdueResolutionModal from "./OverdueResolutionModal";
 import UpcomingTasksCalendarModal from "./UpcomingTasksCalendarModal";
+import UpdateFollowUpModal from "./chat/[leadId]/UpdateFollowUpModal";
 
-interface Task {
+export interface Task {
   id: string;
   title: string | null;
   message: string;
@@ -22,8 +23,25 @@ interface Task {
   countermeasure?: string | null;
 }
 
+export interface FollowUpItem {
+  id: string;
+  leadId: string;
+  scheduledAt: string | Date;
+  note: string;
+  priority?: string;
+  status: string;
+  lead: {
+    id: string;
+    name: string;
+    phone: string;
+    company?: string | null;
+    status?: string;
+  };
+}
+
 interface AgentTaskPanelProps {
   initialTasks: Task[];
+  initialFollowUps?: FollowUpItem[];
   agentId: string;
 }
 
@@ -72,9 +90,12 @@ function formatTimeAgo(d: string | Date): string {
   return `${days}d ago`;
 }
 
-export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanelProps) {
+export default function AgentTaskPanel({ initialTasks, initialFollowUps = [], agentId }: AgentTaskPanelProps) {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
+  const [followUps, setFollowUps] = useState<FollowUpItem[]>(initialFollowUps);
+  const [activeTab, setActiveTab] = useState<"ALL" | "TASKS" | "FOLLOWUPS">("ALL");
+  const [activeFollowUpToUpdate, setActiveFollowUpToUpdate] = useState<FollowUpItem | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [overdueItemToResolve, setOverdueItemToResolve] = useState<any | null>(null);
@@ -82,8 +103,9 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
   const [isPending, startTx] = useTransition();
 
   const pendingCount = tasks.filter((t) => t.status !== "COMPLETED").length;
+  const pendingFollowUpsCount = followUps.filter((f) => f.status === "PENDING").length;
 
-  // Priority sorting
+  // Priority sorting for tasks
   const sortedTasks = useMemo(() => {
     if (prioritySort === "DATE_ORDER") {
       return [...tasks].sort((a, b) => {
@@ -108,6 +130,15 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
       return dA - dB;
     });
   }, [tasks, prioritySort]);
+
+  // Sorting for follow-ups
+  const sortedFollowUps = useMemo(() => {
+    return [...followUps].sort((a, b) => {
+      const dA = new Date(a.scheduledAt).getTime();
+      const dB = new Date(b.scheduledAt).getTime();
+      return dA - dB;
+    });
+  }, [followUps]);
 
   async function handleToggleStatus(task: Task) {
     const isOverdue =
@@ -275,13 +306,283 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
         </div>
       </div>
 
+      {/* ── Filter Tabs: All, Directives, Follow-Ups ─────────────── */}
+      <div style={{ display: "flex", gap: "0.45rem", marginBottom: "0.95rem", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => setActiveTab("ALL")}
+          style={{
+            padding: "0.35rem 0.75rem",
+            borderRadius: "8px",
+            fontSize: "0.76rem",
+            fontWeight: 700,
+            border: activeTab === "ALL" ? "1px solid #20C997" : "1px solid rgba(255,255,255,0.08)",
+            background: activeTab === "ALL" ? "rgba(32, 201, 151, 0.15)" : "rgba(255,255,255,0.03)",
+            color: activeTab === "ALL" ? "#20C997" : "#8b8aa8",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          All ({pendingCount + pendingFollowUpsCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("TASKS")}
+          style={{
+            padding: "0.35rem 0.75rem",
+            borderRadius: "8px",
+            fontSize: "0.76rem",
+            fontWeight: 700,
+            border: activeTab === "TASKS" ? "1px solid #60a5fa" : "1px solid rgba(255,255,255,0.08)",
+            background: activeTab === "TASKS" ? "rgba(96, 165, 250, 0.15)" : "rgba(255,255,255,0.03)",
+            color: activeTab === "TASKS" ? "#60a5fa" : "#8b8aa8",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          📋 Directives ({pendingCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("FOLLOWUPS")}
+          style={{
+            padding: "0.35rem 0.75rem",
+            borderRadius: "8px",
+            fontSize: "0.76rem",
+            fontWeight: 700,
+            border: activeTab === "FOLLOWUPS" ? "1px solid #fb923c" : "1px solid rgba(255,255,255,0.08)",
+            background: activeTab === "FOLLOWUPS" ? "rgba(251, 146, 60, 0.15)" : "rgba(255,255,255,0.03)",
+            color: activeTab === "FOLLOWUPS" ? "#fb923c" : "#8b8aa8",
+            cursor: "pointer",
+            transition: "all 0.15s ease",
+          }}
+        >
+          ⏰ Follow-Ups ({pendingFollowUpsCount})
+        </button>
+      </div>
+
       <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
-        {sortedTasks.length === 0 ? (
-          <div style={{ color: "#8b8aa8", fontSize: "0.85rem", textAlign: "center", padding: "1.5rem 0" }}>
-            No active directives assigned to you right now. Click &quot;+ Create Task&quot; to add one.
-          </div>
-        ) : (
-          sortedTasks.map((task) => {
+        {/* ── Follow-Up Cards ───────────────────────────────────── */}
+        {(activeTab === "ALL" || activeTab === "FOLLOWUPS") &&
+          sortedFollowUps.map((fu) => {
+            const isCompleted = fu.status === "COMPLETED";
+            const countdown = getCountdownTag(fu.scheduledAt, isCompleted);
+            const isOverdue = countdown?.isOverdue ?? false;
+            const pMeta = PRIORITY_META[fu.priority || "MEDIUM"] || PRIORITY_META.MEDIUM;
+
+            return (
+              <div
+                key={`fu-${fu.id}`}
+                onClick={() => setActiveFollowUpToUpdate(fu)}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "0.75rem",
+                  padding: "0.8rem 0.95rem",
+                  borderRadius: "10px",
+                  background: isCompleted
+                    ? "rgba(255, 255, 255, 0.01)"
+                    : isOverdue
+                    ? "rgba(239, 68, 68, 0.06)"
+                    : "rgba(251, 146, 60, 0.05)",
+                  border: isCompleted
+                    ? "1px solid rgba(255, 255, 255, 0.04)"
+                    : isOverdue
+                    ? "2px solid #ef4444"
+                    : "1px solid rgba(251, 146, 60, 0.25)",
+                  boxShadow: isOverdue ? "0 0 16px rgba(239, 68, 68, 0.22)" : "none",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                  opacity: isCompleted ? 0.6 : 1,
+                }}
+              >
+                {/* Follow-Up Clock Icon */}
+                <div
+                  style={{
+                    width: "24px",
+                    height: "24px",
+                    borderRadius: "6px",
+                    background: isCompleted ? "rgba(255,255,255,0.05)" : "rgba(251, 146, 60, 0.15)",
+                    border: isCompleted ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(251, 146, 60, 0.35)",
+                    color: isCompleted ? "#8b8aa8" : "#fb923c",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.85rem",
+                    flexShrink: 0,
+                    marginTop: "1px",
+                  }}
+                  title="Scheduled Follow-Up"
+                >
+                  ⏰
+                </div>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.45rem",
+                      marginBottom: "0.25rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontWeight: 800,
+                        fontSize: "0.9rem",
+                        color: isCompleted ? "#8b8aa8" : "#f1f0ff",
+                      }}
+                    >
+                      {fu.lead?.name || "Lead"}
+                    </span>
+
+                    {fu.lead?.phone && (
+                      <span style={{ fontSize: "0.72rem", color: "#8b8aa8" }}>
+                        {fu.lead.phone}
+                      </span>
+                    )}
+
+                    <span
+                      style={{
+                        fontSize: "0.65rem",
+                        fontWeight: 700,
+                        color: "#fb923c",
+                        background: "rgba(251, 146, 60, 0.1)",
+                        border: "1px solid rgba(251, 146, 60, 0.25)",
+                        padding: "0.08rem 0.4rem",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      Follow-Up
+                    </span>
+
+                    <span
+                      style={{
+                        fontSize: "0.65rem",
+                        fontWeight: 700,
+                        color: pMeta.color,
+                        background: pMeta.bg,
+                        border: `1px solid ${pMeta.border}`,
+                        padding: "0.08rem 0.4rem",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      {pMeta.label}
+                    </span>
+
+                    {countdown && (
+                      <span
+                        style={{
+                          fontSize: "0.68rem",
+                          fontWeight: 700,
+                          padding: "0.1rem 0.45rem",
+                          borderRadius: "4px",
+                          background: countdown.isOverdue
+                            ? "rgba(239, 68, 68, 0.2)"
+                            : "rgba(251, 146, 60, 0.15)",
+                          border: countdown.isOverdue
+                            ? "1px solid rgba(239, 68, 68, 0.4)"
+                            : "1px solid rgba(251, 146, 60, 0.35)",
+                          color: countdown.isOverdue ? "#f87171" : "#fb923c",
+                        }}
+                      >
+                        ⏳ {countdown.text}
+                      </span>
+                    )}
+
+                    <span
+                      style={{
+                        fontSize: "0.72rem",
+                        color: "#fb923c",
+                        marginLeft: "auto",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {new Date(fu.scheduledAt).toLocaleDateString([], {
+                        month: "short",
+                        day: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+
+                  <div
+                    style={{
+                      color: isCompleted ? "#8b8aa8" : "#d1d5db",
+                      fontSize: "0.82rem",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    {fu.note}
+                  </div>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.5rem",
+                      marginTop: "0.5rem",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveFollowUpToUpdate(fu);
+                      }}
+                      style={{
+                        padding: "0.25rem 0.65rem",
+                        borderRadius: "6px",
+                        background: "rgba(251, 146, 60, 0.12)",
+                        border: "1px solid rgba(251, 146, 60, 0.35)",
+                        color: "#fb923c",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✓ Update Outcome
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        router.push(`/dashboard/agent/chat/${fu.lead.id}`);
+                      }}
+                      style={{
+                        padding: "0.25rem 0.65rem",
+                        borderRadius: "6px",
+                        background: "rgba(124, 58, 237, 0.15)",
+                        border: "1px solid rgba(124, 58, 237, 0.35)",
+                        color: "#c4b5fd",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "0.3rem",
+                      }}
+                    >
+                      💬 Message Lead
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+
+        {/* ── Directive Tasks ───────────────────────────────────── */}
+        {(activeTab === "ALL" || activeTab === "TASKS") && (
+          sortedTasks.length === 0 && activeTab === "TASKS" ? (
+            <div style={{ color: "#8b8aa8", fontSize: "0.85rem", textAlign: "center", padding: "1.5rem 0" }}>
+              No active directives assigned to you right now. Click &quot;+ Create Task&quot; to add one.
+            </div>
+          ) : (
+            sortedTasks.map((task) => {
             const isCompleted = task.status === "COMPLETED";
             const pMeta = PRIORITY_META[task.priority] || PRIORITY_META.MEDIUM;
             const countdown = getCountdownTag(task.dueDate, isCompleted);
@@ -466,6 +767,20 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
               </div>
             );
           })
+        ))}
+
+        {/* Empty State for All */}
+        {activeTab === "ALL" && sortedTasks.length === 0 && sortedFollowUps.length === 0 && (
+          <div style={{ color: "#8b8aa8", fontSize: "0.85rem", textAlign: "center", padding: "1.5rem 0" }}>
+            No active directives or follow-ups right now. All caught up!
+          </div>
+        )}
+
+        {/* Empty State for Follow-Ups */}
+        {activeTab === "FOLLOWUPS" && sortedFollowUps.length === 0 && (
+          <div style={{ color: "#8b8aa8", fontSize: "0.85rem", textAlign: "center", padding: "1.5rem 0" }}>
+            No pending follow-ups scheduled. Good job!
+          </div>
         )}
       </div>
 
@@ -491,6 +806,23 @@ export default function AgentTaskPanel({ initialTasks, agentId }: AgentTaskPanel
             setTasks((prev) =>
               prev.map((t) => (t.id === updated.id ? { ...t, status: "COMPLETED", overdueReason: updated.overdueReason, countermeasure: updated.countermeasure } : t))
             );
+          }}
+        />
+      )}
+
+      {/* Interactive Update Follow-Up Outcome Modal */}
+      {activeFollowUpToUpdate && (
+        <UpdateFollowUpModal
+          leadId={activeFollowUpToUpdate.lead.id}
+          leadName={activeFollowUpToUpdate.lead.name}
+          activeFollowUpId={activeFollowUpToUpdate.id}
+          onClose={() => setActiveFollowUpToUpdate(null)}
+          onUpdated={() => {
+            setFollowUps((prev) =>
+              prev.filter((f) => f.id !== activeFollowUpToUpdate.id)
+            );
+            setActiveFollowUpToUpdate(null);
+            router.refresh();
           }}
         />
       )}

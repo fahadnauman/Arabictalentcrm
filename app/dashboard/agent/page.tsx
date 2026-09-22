@@ -9,6 +9,7 @@ import AttendanceControls          from "./AttendanceControls";
 import AgentTaskPanel              from "./AgentTaskPanel";
 import DailyBriefingModal          from "./DailyBriefingModal";
 import AgentBottomNav            from "./BottomNav";
+import { LiveNewLeadsStatCard, LiveTodayNewLeadsCard } from "./AgentLiveStatsCards";
 import styles from "./agent.module.css";
 
 // ── CRM logo icon ──────────────────────────────────────────────────────────
@@ -166,16 +167,8 @@ export default async function AgentHomePage() {
             </span>
           </div>
 
-          {/* New Leads */}
-          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-            <div>
-              <div className={styles.statVal} style={{ color: "#60a5fa" }}>{stats.newLeadsCount}</div>
-              <div className={styles.statLbl}>New Leads</div>
-            </div>
-            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
-              Fresh in pipeline
-            </span>
-          </div>
+          {/* New Leads (Live Real-Time Counter) */}
+          <LiveNewLeadsStatCard initialCount={stats.newLeadsCount} />
 
           {/* Win Rate */}
           <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -246,20 +239,8 @@ export default async function AgentHomePage() {
               </div>
             </div>
 
-            <div style={{
-              background: "rgba(96, 165, 250, 0.08)",
-              border: "1px solid rgba(96, 165, 250, 0.2)",
-              borderRadius: "10px",
-              padding: "0.75rem",
-              textAlign: "center",
-            }}>
-              <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#60a5fa" }}>
-                {stats.todayOverview.todayNewLeads}
-              </div>
-              <div style={{ fontSize: "0.7rem", color: "#d1d5db", fontWeight: 600, marginTop: "0.15rem" }}>
-                Today&apos;s New Leads
-              </div>
-            </div>
+            {/* Today's New Leads (Live Real-Time Counter) */}
+            <LiveTodayNewLeadsCard initialCount={stats.todayOverview.todayNewLeads} />
 
             <div style={{
               background: "rgba(32, 201, 151, 0.08)",
@@ -298,7 +279,7 @@ export default async function AgentHomePage() {
         </div>
 
         {/* ── Directives & Task Assignment Panel ──────────────────── */}
-        <AgentTaskPanel initialTasks={tasks} agentId={user.id} />
+        <AgentTaskPanel initialTasks={tasks} initialFollowUps={followUps as any} agentId={user.id} />
       </div>
 
       {/* ── Shared bottom nav (3 tabs) ──────────────────────────── */}

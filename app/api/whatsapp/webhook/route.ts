@@ -5,8 +5,123 @@ export async function POST(req: Request) {
   try {
     const payload = await req.json();
 
-    // Evolution API sends different events. We only care about messages.upsert
-    if (payload.event !== "messages.upsert") {
+    // Evolution API sends events like messages.upsert / MESSAGES_UPSERT and messages.update / MESSAGES_UPDATE
+    const rawEvent = (payload.event || payload.type || "").toString().toLowerCase().replace(/[._-]/g, "");
+    const isUpdate = rawEvent === "messagesupdate" || rawEvent === "messageupdate";
+    const isUpsert = rawEvent === "messagesupsert" || rawEvent === "messageupsert";
+
+    if (!isUpdate && !isUpsert) {
+      return NextResponse.json({ success: true });
+    }
+
+    if (isUpdate) {
+      let updates: any[] = [];
+      if (Array.isArray(payload.data)) {
+        updates = payload.data;
+      } else if (Array.isArray(payload.data?.messages)) {
+        updates = payload.data.messages;
+      } else if (Array.isArray(payload.messages)) {
+        updates = payload.messages;
+      } else if (payload.data && typeof payload.data === "object") {
+        updates = [payload.data];
+      } else if (payload.key || payload.update) {
+        updates = [payload];
+      }
+
+      for (const updateObj of updates) {
+        if (!updateObj) continue;
+
+        const messageSid =
+          updateObj.key?.id ||
+          updateObj.id ||
+          updateObj.messageId ||
+          updateObj.keyId;
+
+        if (!messageSid) continue;
+
+        // Correctly extract ack integer from payload
+        const rawAck =
+          updateObj.update?.ack ??
+          updateObj.ack ??
+          updateObj.update?.status ??
+          updateObj.status;
+
+        if (rawAck === undefined || rawAck === null) continue;
+
+        let ackNum: number | null = null;
+        if (typeof rawAck === "number") {
+          ackNum = rawAck;
+        } else if (typeof rawAck === "string") {
+          const parsed = parseInt(rawAck, 10);
+          if (!isNaN(parsed)) {
+            ackNum = parsed;
+          } else {
+            const s = rawAck.toUpperCase();
+            if (s === "SENT" || s === "SERVER_ACK" || s === "PENDING") ackNum = 1;
+            else if (s === "DELIVERED" || s === "DELIVERY_ACK") ackNum = 2;
+            else if (s === "READ" || s === "READ_ACK") ackNum = 3;
+            else if (s === "PLAYED" || s === "PLAYED_ACK") ackNum = 4;
+          }
+        }
+
+        // Map Evolution API ack to database Message.status:
+        // ack: 1 ➔ SENT (Single gray tick)
+        // ack: 2 ➔ DELIVERED (Double gray tick)
+        // ack: 3 ➔ READ (Double blue tick)
+        // ack: 4 ➔ PLAYED (Double blue tick for voice notes)
+        let newStatus: "SENT" | "DELIVERED" | "READ" | "PLAYED" | null = null;
+        if (ackNum === 1) newStatus = "SENT";
+        else if (ackNum === 2) newStatus = "DELIVERED";
+        else if (ackNum === 3) newStatus = "READ";
+        else if (ackNum !== null && ackNum >= 4) newStatus = "PLAYED";
+
+        if (!newStatus) continue;
+
+        const existingMsg = await prisma.message.findFirst({
+          where: { twilioSid: messageSid },
+          select: { id: true, status: true, deliveredAt: true, readAt: true },
+        });
+
+        if (existingMsg) {
+          const statusHierarchy: Record<string, number> = {
+            PENDING: 0,
+            QUEUED: 0,
+            SENT: 1,
+            DELIVERED: 2,
+            READ: 3,
+            PLAYED: 4,
+          };
+
+          const currentRank = statusHierarchy[existingMsg.status] ?? 0;
+          const newRank = statusHierarchy[newStatus] ?? 0;
+
+          // Enforce forward status progression (never downgrade e.g. READ back to DELIVERED)
+          if (newRank >= currentRank) {
+            await prisma.message.update({
+              where: { id: existingMsg.id },
+              data: {
+                status: newStatus,
+                deliveredAt:
+                  (newStatus === "DELIVERED" || newStatus === "READ" || newStatus === "PLAYED")
+                    ? (existingMsg.deliveredAt ?? new Date())
+                    : undefined,
+                readAt:
+                  (newStatus === "READ" || newStatus === "PLAYED")
+                    ? (existingMsg.readAt ?? new Date())
+                    : undefined,
+              },
+            });
+            console.log(`[Evolution Webhook] Updated message ${existingMsg.id} (${messageSid}) to ${newStatus} (ack: ${ackNum})`);
+          }
+        } else {
+          // Fallback updateMany if messageSid matched
+          await prisma.message.updateMany({
+            where: { twilioSid: messageSid },
+            data: { status: newStatus },
+          });
+          console.warn(`[Evolution Webhook] Message with twilioSid=${messageSid} not found on findFirst`);
+        }
+      }
       return NextResponse.json({ success: true });
     }
 

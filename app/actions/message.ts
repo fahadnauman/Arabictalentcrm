@@ -16,6 +16,7 @@ export interface SentMessage {
   senderName: string | null;
   mediaUrl?: string | null;
   mediaType?: string | null;
+  status?:   string | null;
 }
 
 export type SendMessageResult =
@@ -207,6 +208,14 @@ export async function sendMessage(
             rawResponse: errText,
           };
         }
+
+        const evoData = await res.json().catch(() => null);
+        if (evoData?.key?.id) {
+          await prisma.message.update({
+            where: { id: msg.id },
+            data: { twilioSid: evoData.key.id }
+          }).catch(() => {});
+        }
       }
     } else {
       // Send Text
@@ -237,6 +246,14 @@ export async function sendMessage(
           rawResponse: errText,
         };
       }
+
+      const evoData = await res.json().catch(() => null);
+      if (evoData?.key?.id) {
+        await prisma.message.update({
+          where: { id: msg.id },
+          data: { twilioSid: evoData.key.id }
+        }).catch(() => {});
+      }
     }
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -264,6 +281,7 @@ export async function sendMessage(
       senderName: msg.sentBy?.name ?? null,
       mediaUrl:   msg.mediaUrl,
       mediaType:  msg.mediaType,
+      status:     "SENT",
     },
   };
 }
@@ -371,6 +389,7 @@ export async function recordOutboundMedia(
               senderName: existing.sentBy?.name ?? user.name,
               mediaUrl: existing.mediaUrl,
               mediaType: existing.mediaType,
+              status: "SENT",
             },
           };
         }
@@ -455,6 +474,7 @@ export async function recordOutboundMedia(
         senderName: msg?.sentBy?.name ?? user.name,
         mediaUrl: msg?.mediaUrl || null,
         mediaType: msg?.mediaType || sanitizedMimeType,
+        status: "SENT",
       },
     };
   } catch (err: any) {
@@ -470,6 +490,7 @@ export async function recordOutboundMedia(
         senderName: null,
         mediaUrl: null,
         mediaType: sanitizedMimeType,
+        status: "SENT",
       },
     };
   }

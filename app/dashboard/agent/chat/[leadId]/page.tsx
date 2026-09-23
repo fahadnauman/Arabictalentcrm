@@ -89,7 +89,7 @@ export default async function ChatPage({
       direction:  m.direction,
       sentAt:     m.sentAt.toISOString(),
       senderName: m.sentBy?.name ?? null,
-      status:     "sent",
+      status:     m.status ? m.status.toUpperCase() : "SENT",
       mediaUrl:   m.mediaUrl?.includes("localhost:3000") ? `/api/media/${m.id}` : (m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null)),
       mediaType:  m.mediaType,
       isStatusReply: m.isStatusReply,
@@ -225,7 +225,7 @@ export default async function ChatPage({
         </div>
 
         {/* Status tags — CLOSED intercepts to modal */}
-        <StatusUpdater leadId={lead.id} leadName={lead.name} currentStatus={lead.status} />
+        <StatusUpdater leadId={lead.id} leadName={lead.name} currentStatus={lead.status} currentTemperature={lead.temperature} />
       </div>
 
       {/* ══════════════════════════════════════════════════════════

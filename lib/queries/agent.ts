@@ -217,6 +217,7 @@ export async function getLeadWithMessages(leadId: string, agentId: string) {
           isStatusReply: true,
           mediaUrl:  true,
           mediaType: true,
+          status:    true,
           sentBy:    { select: { name: true } },
         },
       },

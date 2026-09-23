@@ -35,6 +35,7 @@ export async function GET(
           isStatusReply: true,
           mediaUrl: true,
           mediaType: true,
+          status: true,
           sentBy: { select: { name: true } },
         },
       },
@@ -74,7 +75,7 @@ export async function GET(
       senderName: m.sentBy?.name ?? null,
       mediaUrl: m.mediaUrl?.includes("localhost:3000") ? `/api/media/${m.id}` : (m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null)),
       mediaType: m.mediaType,
-      status: "sent",
+      status: m.status ? m.status.toUpperCase() : "SENT",
       isStatusReply: m.isStatusReply,
     };
   });

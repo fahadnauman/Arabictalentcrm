@@ -49,6 +49,7 @@ enum MessageStatus {
   FAILED
   UNDELIVERED
   RECEIVED
+  PLAYED
 }
 
 /// Payment completion status for a closed deal.

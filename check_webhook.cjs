@@ -3,7 +3,7 @@ const http = require('http');
 const options = {
   hostname: '143.198.182.24',
   port: 8080,
-  path: '/webhook/find/arabic-talent-instance',
+  path: '/webhook/find/arabic-talent-prod',
   method: 'GET',
   headers: {
     'apikey': 'arabictalent-api-key-2024'

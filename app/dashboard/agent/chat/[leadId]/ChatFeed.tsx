@@ -85,6 +85,57 @@ const VPS_DIRECT_UPLOAD_URL =
   process.env.NEXT_PUBLIC_VPS_DIRECT_UPLOAD_URL ||
   "https://143.198.182.24.sslip.io/direct-upload";
 
+function SingleTickIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg
+      width="15"
+      height="11"
+      viewBox="0 0 16 11"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ display: "inline-block", verticalAlign: "middle", ...style }}
+    >
+      <path
+        d="M11.07 1.25L4.85 7.47L2.18 4.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function DoubleTickIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <svg
+      width="16"
+      height="11"
+      viewBox="0 0 16 11"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      style={{ display: "inline-block", verticalAlign: "middle", ...style }}
+    >
+      <path
+        d="M9.82 1.25L3.6 7.47L0.93 4.8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.07 1.25L7.85 7.47L6.4 6.02"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────
 export default function ChatFeed({
   leadId,
@@ -141,12 +192,12 @@ export default function ChatFeed({
         (m) => m.status === "pending" || m.status === "failed" || m.pending || m.failed
       );
       if (pendingOrFailed.length === 0) {
-        return initialMsgs.map((m) => ({ ...m, status: m.status || "sent" }));
+        return initialMsgs.map((m) => ({ ...m, status: m.status || "SENT" }));
       }
       const initialIds = new Set(initialMsgs.map((m) => m.id));
       const stillPending = pendingOrFailed.filter((m) => !initialIds.has(m.id));
       return [
-        ...initialMsgs.map((m) => ({ ...m, status: m.status || "sent" })),
+        ...initialMsgs.map((m) => ({ ...m, status: m.status || "SENT" })),
         ...stillPending,
       ];
     });
@@ -166,12 +217,13 @@ export default function ChatFeed({
         if (!isMounted) return;
 
         setMessages((prev) => {
-          // If no change, return prev to preserve references and avoid rerender
+          // If no change (including status updates), return prev to preserve references and avoid rerender
           if (
             prev.length === freshMsgs.length &&
             prev.every(
               (m, i) =>
                 m.id === freshMsgs[i]?.id &&
+                (m.status || "").toUpperCase() === (freshMsgs[i]?.status || "").toUpperCase() &&
                 !m.pending &&
                 !m.failed &&
                 m.status !== "pending" &&
@@ -185,14 +237,14 @@ export default function ChatFeed({
             (m) => m.pending || m.failed || m.status === "pending" || m.status === "failed"
           );
           if (pendingMsgs.length === 0) {
-            return freshMsgs.map((m) => ({ ...m, status: m.status || "sent" }));
+            return freshMsgs.map((m) => ({ ...m, status: m.status || "SENT" }));
           }
 
           // If there are pending optimistic messages, preserve them at the end
           const freshIds = new Set(freshMsgs.map((m) => m.id));
           const stillPending = pendingMsgs.filter((m) => !freshIds.has(m.id));
           return [
-            ...freshMsgs.map((m) => ({ ...m, status: m.status || "sent" })),
+            ...freshMsgs.map((m) => ({ ...m, status: m.status || "SENT" })),
             ...stillPending,
           ];
         });
@@ -288,7 +340,7 @@ export default function ChatFeed({
             m.id === tempId
               ? {
                   ...saved,
-                  status: "sent",
+                  status: "SENT",
                   pending: false,
                   failed: false,
                 }
@@ -502,7 +554,7 @@ export default function ChatFeed({
               ? {
                   ...saved,
                   mediaUrl: localPreviewUrl, // Maintain local preview for agent
-                  status: "sent",
+                  status: "SENT",
                   pending: false,
                   failed: false,
                 }
@@ -518,7 +570,7 @@ export default function ChatFeed({
                   ...m,
                   id: evoData?.key?.id || tempId,
                   mediaUrl: localPreviewUrl,
-                  status: "sent",
+                  status: "SENT",
                   pending: false,
                   failed: false,
                 }
@@ -979,11 +1031,44 @@ export default function ChatFeed({
                             <polyline points="12 6 12 12 16 14" />
                           </svg>
                         </span>
-                      ) : (
-                        <span className={chatStyles.statusSent} title="Sent">
-                          ✓
-                        </span>
-                      )}
+                      ) : (() => {
+                        const st = (msg.status || "").toUpperCase();
+                        const isPlayed = st === "PLAYED";
+                        const isRead = st === "READ" || isPlayed;
+                        const isDelivered = st === "DELIVERED";
+
+                        if (isRead) {
+                          return (
+                            <span
+                              className={chatStyles.statusRead}
+                              style={{ color: "#53bdeb", display: "inline-flex", alignItems: "center" }}
+                              title={isPlayed ? "Played" : "Read"}
+                            >
+                              <DoubleTickIcon />
+                            </span>
+                          );
+                        }
+                        if (isDelivered) {
+                          return (
+                            <span
+                              className={chatStyles.statusDelivered}
+                              style={{ color: "rgba(255, 255, 255, 0.45)", display: "inline-flex", alignItems: "center" }}
+                              title="Delivered"
+                            >
+                              <DoubleTickIcon />
+                            </span>
+                          );
+                        }
+                        return (
+                          <span
+                            className={chatStyles.statusSent}
+                            style={{ color: "rgba(255, 255, 255, 0.45)", display: "inline-flex", alignItems: "center" }}
+                            title="Sent"
+                          >
+                            <SingleTickIcon />
+                          </span>
+                        );
+                      })()}
                     </span>
                   )}
                 </div>

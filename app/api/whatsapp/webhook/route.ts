@@ -3,15 +3,74 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(req: Request) {
   try {
-    const payload = await req.json();
+    let body: any;
+    try {
+      body = await req.json();
+    } catch (parseErr) {
+      console.error("🚨 RAW WEBHOOK PAYLOAD PARSE ERROR:", parseErr);
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
 
-    // Evolution API sends events like messages.upsert / MESSAGES_UPSERT and messages.update / MESSAGES_UPDATE
+    // 1. Aggressive Webhook Logging (dump every incoming event regardless of type)
+    console.log("🚨 RAW WEBHOOK PAYLOAD:", JSON.stringify(body, null, 2));
+
+    const payload = body;
+
+    // Evolution API sends events like messages.upsert / MESSAGES_UPSERT, messages.update / MESSAGES_UPDATE, connection.update / CONNECTION_UPDATE, and qrcode.updated
     const rawEvent = (payload.event || payload.type || "").toString().toLowerCase().replace(/[._-]/g, "");
     const isUpdate = rawEvent === "messagesupdate" || rawEvent === "messageupdate";
     const isUpsert = rawEvent === "messagesupsert" || rawEvent === "messageupsert";
+    const isConnectionUpdate =
+      rawEvent === "connectionupdate" ||
+      payload.event === "connection.update" ||
+      payload.type === "connection.update" ||
+      rawEvent === "qrcodeupdated" ||
+      payload.event === "qrcode.updated";
+
+    // 2. Handle Connection Drops (connection.update / qrcode.updated)
+    if (isConnectionUpdate) {
+      const connData = payload.data || payload;
+      const state = connData.state || connData.connection || connData.status;
+      const statusCode = connData.statusCode || connData.statusReason || connData.error;
+      const isCloseOrDisconnect =
+        state === "close" ||
+        state === "refused" ||
+        statusCode === 401 ||
+        statusCode === 403 ||
+        statusCode === 428 ||
+        connData.reason === 401;
+      const needsQR =
+        Boolean(connData.qr || connData.qrcode || rawEvent === "qrcodeupdated" || payload.event === "qrcode.updated");
+
+      if (isCloseOrDisconnect || needsQR) {
+        console.error(
+          "🚨 [CRITICAL CONNECTION DROP] Evolution API WhatsApp Session Disconnected / Logged Out / Needs QR:",
+          JSON.stringify(
+            {
+              event: payload.event || payload.type,
+              instance: payload.instance || connData.instance,
+              state,
+              statusCode,
+              isCloseOrDisconnect,
+              needsQR,
+              data: connData,
+            },
+            null,
+            2
+          )
+        );
+      } else {
+        console.log(
+          `ℹ️ [Evolution Webhook] Connection State: ${state || "unknown"} (Status: ${statusCode || "N/A"})`
+        );
+      }
+
+      return NextResponse.json({ success: true, handled: "connection.update" });
+    }
 
     if (!isUpdate && !isUpsert) {
-      return NextResponse.json({ success: true });
+      console.log(`[Evolution Webhook] Unhandled or ignored event type: ${payload.event || payload.type}`);
+      return NextResponse.json({ success: true, handled: false });
     }
 
     if (isUpdate) {
@@ -152,17 +211,17 @@ export async function POST(req: Request) {
     const profileName = messageData.pushName || "Unknown WhatsApp User";
 
     // Extract text body or media caption
-    let body = "";
+    let messageText = "";
     if (messageData.message?.conversation) {
-      body = messageData.message.conversation;
+      messageText = messageData.message.conversation;
     } else if (messageData.message?.extendedTextMessage?.text) {
-      body = messageData.message.extendedTextMessage.text;
+      messageText = messageData.message.extendedTextMessage.text;
     } else if (messageData.message?.imageMessage?.caption) {
-      body = messageData.message.imageMessage.caption;
+      messageText = messageData.message.imageMessage.caption;
     } else if (messageData.message?.videoMessage?.caption) {
-      body = messageData.message.videoMessage.caption;
+      messageText = messageData.message.videoMessage.caption;
     } else if (messageData.message?.documentMessage?.caption) {
-      body = messageData.message.documentMessage.caption;
+      messageText = messageData.message.documentMessage.caption;
     }
 
     // Media handling
@@ -190,7 +249,7 @@ export async function POST(req: Request) {
       );
       mediaType = mime;
 
-      if (!body) body = "Media Attachment";
+      if (!messageText) messageText = "Media Attachment";
 
       // Extract base64 if provided by Evolution API webhook (with webhookBase64: true)
       const base64Data = 
@@ -224,7 +283,7 @@ export async function POST(req: Request) {
       // If the lead doesn't exist, create a new one to log the message against
       const { getNextAgentInRotation, extractCampaignLanguage } = await import("@/lib/roundRobin");
       
-      const requiredLang = extractCampaignLanguage("", body, profileName);
+      const requiredLang = extractCampaignLanguage("", messageText, profileName);
       const assignment = await getNextAgentInRotation(requiredLang);
       const assignedAgentId = assignment?.agentId || null;
 
@@ -258,7 +317,7 @@ export async function POST(req: Request) {
       create: {
         twilioSid: messageSid,
         leadId: lead.id,
-        body,
+        body: messageText,
         direction: "INBOUND",
         status: "RECEIVED",
         mediaUrl,

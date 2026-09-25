@@ -19,18 +19,7 @@ import styles from "./agent.module.css";
 
 // ── CRM logo icon ──────────────────────────────────────────────────────────
 const IconCRM = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="white"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className="w-3.5 h-3.5 flex-shrink-0"
-    style={{ width: 14, height: 14, flexShrink: 0 }}
-  >
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
     <circle cx="9" cy="7" r="4"/>
     <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
@@ -74,7 +63,7 @@ export default async function AgentHomePage() {
     : 0;
 
   return (
-    <div className={`${styles.shell} w-full max-w-[100vw] overflow-x-hidden`}>
+    <div className={styles.shell}>
       <DailyBriefingModal
         agentId={user.id}
         agentName={user.name}
@@ -83,11 +72,11 @@ export default async function AgentHomePage() {
       />
 
       {/* ── Top bar ───────────────────────────────────────────────── */}
-      <header className={`${styles.topbar} flex flex-row items-center justify-between`}>
-        <div className={`${styles.topbarLogo} flex items-center gap-2`}>
+      <header className={styles.topbar}>
+        <div className={styles.topbarLogo}>
           <img src="/logo.png" alt="Arabic Talent" style={{ height: 32, width: "auto", objectFit: "contain" }} />
         </div>
-        <div className={`${styles.topbarRight} flex flex-row items-center gap-2`} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <div className={styles.topbarRight} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <AttendanceControls
             initialAttendance={
               todayAttendance
@@ -100,81 +89,79 @@ export default async function AgentHomePage() {
                 : null
             }
           />
-          <span className={`${styles.agentBadge} inline-flex items-center`}>◈ {user.name}</span>
-          <form action="/api/auth/logout" method="POST" className="flex items-center">
+          <span className={styles.agentBadge}>◈ {user.name}</span>
+          <form action="/api/auth/logout" method="POST">
             <button type="submit" className={styles.logoutBtn}>Out</button>
           </form>
         </div>
       </header>
 
-      <div className={`${styles.body} w-full max-w-[100vw] overflow-x-hidden px-4 md:px-8 pb-20 md:pb-6`}>
+      <div className={styles.body}>
 
-        {/* ── Top Metrics Header: Stacks on mobile, side-by-side on desktop ── */}
-        <div className={`${styles.metricsHeader} flex flex-col md:flex-row md:items-center md:justify-between gap-4 w-full`}>
-          {/* ── Revenue hero with distinct Partial Payments tracking ── */}
-          <div className={`${styles.heroBlock} ${styles.metricsHeaderHero} flex flex-col items-center justify-center relative overflow-hidden`} style={{ position: "relative", overflow: "hidden" }}>
-            <div className={`${styles.heroLabel} flex flex-row items-center justify-center gap-2 w-full`}>Total Revenue Collected</div>
-            <div className={`${styles.heroAmount} flex flex-row items-center justify-center`}>
-              <span className={styles.heroCurrency}>AED</span>
-              {formatAED(stats.revenueTracking.totalCashCollectedAED)}
-            </div>
-            <div className={`${styles.heroSub} flex flex-row items-center justify-center flex-wrap gap-3`} style={{ display: "flex", gap: "0.8rem", justifyContent: "center", flexWrap: "wrap", marginTop: "0.4rem" }}>
-              <span>Full: <strong style={{ color: "#20C997" }}>AED {formatAED(stats.revenueTracking.fullRevenueAED)}</strong> ({stats.revenueTracking.fullDealsCount})</span>
-              <span>·</span>
-              <span>Partial: <strong style={{ color: "#fbbf24" }}>AED {formatAED(stats.revenueTracking.partialCollectedAED)}</strong> ({stats.revenueTracking.partialDealsCount})</span>
-            </div>
-
-            {stats.revenueTracking.partialBalanceDueAED > 0 && (
-              <div className="inline-flex items-center gap-2" style={{
-                marginTop: "0.75rem",
-                background: "rgba(245, 158, 11, 0.12)",
-                border: "1px solid rgba(245, 158, 11, 0.3)",
-                borderRadius: "8px",
-                padding: "0.35rem 0.75rem",
-                fontSize: "0.75rem",
-                color: "#fbbf24",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "0.4rem",
-              }}>
-                <span>⏳</span>
-                <span>Pending Balance Due: <strong>AED {formatAED(stats.revenueTracking.partialBalanceDueAED)}</strong></span>
-              </div>
-            )}
-
-            {stats.revenueTracking.totalCashCollectedAED > 0 && (
-              <div className={`${styles.heroBadge} inline-flex items-center gap-1`}>▲ Revenue is live</div>
-            )}
+        {/* ── Revenue hero with distinct Partial Payments tracking ── */}
+        <div className={styles.heroBlock} style={{ position: "relative", overflow: "hidden" }}>
+          <div className={styles.heroLabel}>Total Revenue Collected</div>
+          <div className={styles.heroAmount}>
+            <span className={styles.heroCurrency}>AED</span>
+            {formatAED(stats.revenueTracking.totalCashCollectedAED)}
+          </div>
+          <div className={styles.heroSub} style={{ display: "flex", gap: "0.8rem", justifyContent: "center", flexWrap: "wrap", marginTop: "0.4rem" }}>
+            <span>Full: <strong style={{ color: "#20C997" }}>AED {formatAED(stats.revenueTracking.fullRevenueAED)}</strong> ({stats.revenueTracking.fullDealsCount})</span>
+            <span>·</span>
+            <span>Partial: <strong style={{ color: "#fbbf24" }}>AED {formatAED(stats.revenueTracking.partialCollectedAED)}</strong> ({stats.revenueTracking.partialDealsCount})</span>
           </div>
 
-          {/* ── Quick Stats: Total Leads, Follow-Up Leads, New Leads, Win Rate ── */}
-          <div className={`${styles.metricsHeaderStats} grid grid-cols-2 gap-4 w-full`} style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
-            gap: "0.75rem",
-          }}>
-            {/* Total Leads (Interactive -> /dashboard/agent/inbox) */}
-            <InteractiveTotalLeadsCard
-              totalLeads={stats.totalLeads}
-              temperatureBreakdown={stats.temperatureBreakdown}
-            />
-
-            {/* Follow-Up Leads (Interactive -> /dashboard/agent/inbox?filter=follow-up) */}
-            <InteractiveFollowUpLeadsCard count={stats.followUpLeadsCount} />
-
-            {/* New Leads (Live Real-Time Counter & Interactive -> /dashboard/agent/inbox?filter=new) */}
-            <LiveNewLeadsStatCard initialCount={stats.newLeadsCount} />
-
-            {/* Win Rate */}
-            <div className={`${styles.statCard} flex flex-col justify-between`} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div>
-                <div className={`${styles.statVal} ${styles.blueVal}`}>{winRate}%</div>
-                <div className={styles.statLbl}>Win Rate</div>
-              </div>
-              <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
-                {stats.closedLeads} closed deals
-              </span>
+          {stats.revenueTracking.partialBalanceDueAED > 0 && (
+            <div style={{
+              marginTop: "0.75rem",
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid rgba(245, 158, 11, 0.3)",
+              borderRadius: "8px",
+              padding: "0.35rem 0.75rem",
+              fontSize: "0.75rem",
+              color: "#fbbf24",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "0.4rem",
+            }}>
+              <span>⏳</span>
+              <span>Pending Balance Due: <strong>AED {formatAED(stats.revenueTracking.partialBalanceDueAED)}</strong></span>
             </div>
+          )}
+
+          {stats.revenueTracking.totalCashCollectedAED > 0 && (
+            <div className={styles.heroBadge}>▲ Revenue is live</div>
+          )}
+        </div>
+
+        {/* ── Quick Stats: Total Leads, Follow-Up Leads, New Leads, Win Rate ── */}
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: "0.75rem",
+          marginTop: "1rem",
+        }}>
+          {/* Total Leads (Interactive -> /dashboard/agent/inbox) */}
+          <InteractiveTotalLeadsCard
+            totalLeads={stats.totalLeads}
+            temperatureBreakdown={stats.temperatureBreakdown}
+          />
+
+          {/* Follow-Up Leads (Interactive -> /dashboard/agent/inbox?filter=follow-up) */}
+          <InteractiveFollowUpLeadsCard count={stats.followUpLeadsCount} />
+
+          {/* New Leads (Live Real-Time Counter & Interactive -> /dashboard/agent/inbox?filter=new) */}
+          <LiveNewLeadsStatCard initialCount={stats.newLeadsCount} />
+
+          {/* Win Rate */}
+          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+            <div>
+              <div className={`${styles.statVal} ${styles.blueVal}`}>{winRate}%</div>
+              <div className={styles.statLbl}>Win Rate</div>
+            </div>
+            <span style={{ fontSize: "0.68rem", color: "#8b8aa8", marginTop: "0.5rem" }}>
+              {stats.closedLeads} closed deals
+            </span>
           </div>
         </div>
 

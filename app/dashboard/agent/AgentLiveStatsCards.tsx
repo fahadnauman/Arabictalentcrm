@@ -18,7 +18,7 @@ export function InteractiveTotalLeadsCard({
   return (
     <div
       onClick={() => router.push("/dashboard/agent/inbox")}
-      className={`${styles.statCard} flex flex-col justify-between transition-all duration-200 ease-out`}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -43,7 +43,6 @@ export function InteractiveTotalLeadsCard({
         <div className={styles.statLbl}>Total Leads Joined</div>
       </div>
       <div
-        className="flex flex-row items-center gap-1.5 flex-wrap"
         style={{
           display: "flex",
           gap: "0.35rem",
@@ -71,7 +70,7 @@ export function InteractiveFollowUpLeadsCard({ count }: InteractiveFollowUpLeads
   return (
     <div
       onClick={() => router.push("/dashboard/agent/inbox?filter=follow-up")}
-      className={`${styles.statCard} flex flex-col justify-between transition-all duration-200 ease-out`}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -129,7 +128,7 @@ export function LiveNewLeadsStatCard({ initialCount }: LiveNewLeadsStatCardProps
   return (
     <div
       onClick={() => router.push("/dashboard/agent/inbox?filter=new")}
-      className={`${styles.statCard} flex flex-col justify-between transition-all duration-200 ease-out`}
+      className={`${styles.statCard} transition-all duration-200 ease-out`}
       style={{
         display: "flex",
         flexDirection: "column",

@@ -113,11 +113,11 @@ export default async function AdminDashboard() {
   ];
 
   return (
-    <div className={`${styles.page} w-full max-w-[100vw] overflow-x-hidden`}>
+    <div className={styles.page}>
 
       {/* ── Top navigation bar ─────────────────────────────────────── */}
-      <header className={`${styles.topbar} flex flex-row items-center justify-between`}>
-        <div className={`${styles.logoWrap} flex items-center`}>
+      <header className={styles.topbar}>
+        <div className={styles.logoWrap}>
           <Link href="/dashboard/admin" style={{ display: "flex", alignItems: "center", textDecoration: "none" }}>
             <img src="/logo.png" alt="Arabic Talent" style={{ height: 50, width: "auto", objectFit: "contain" }} />
           </Link>
@@ -126,15 +126,15 @@ export default async function AdminDashboard() {
         </div>
 
         {/* Navigation Links */}
-        <nav className="flex items-center gap-6" style={{ flex: 1, marginLeft: "2rem", display: "flex", gap: "1.5rem" }}>
+        <nav style={{ flex: 1, marginLeft: "2rem", display: "flex", gap: "1.5rem" }}>
           <Link href="/dashboard/admin" style={{ color: "#20C997", textDecoration: "none", fontSize: "0.9rem", fontWeight: 700 }}>Dashboard</Link>
           <Link href="/dashboard/admin/leads" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Leads</Link>
           <Link href="/dashboard/admin/agents" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Agents</Link>
           <Link href="/dashboard/admin/audit" style={{ color: "#8b8aa8", textDecoration: "none", fontSize: "0.9rem", fontWeight: 600 }}>Audit Trail</Link>
         </nav>
 
-        <div className={`${styles.topbarRight} flex items-center gap-3`}>
-          <span className={`${styles.adminBadge} inline-flex items-center`}>⬡ &nbsp;{user.name}</span>
+        <div className={styles.topbarRight}>
+          <span className={styles.adminBadge}>⬡ &nbsp;{user.name}</span>
           <form className={styles.logoutForm} action="/api/auth/logout" method="POST">
             <button type="submit">Sign out</button>
           </form>
@@ -142,17 +142,17 @@ export default async function AdminDashboard() {
       </header>
 
       {/* ── Main content ───────────────────────────────────────────── */}
-      <main className={`${styles.main} w-full`}>
+      <main className={styles.main}>
 
         {/* Page header */}
-        <div className="flex flex-row items-center justify-between" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.35rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.35rem" }}>
           <h1 className={styles.heading} style={{ marginBottom: 0 }}>Admin Dashboard</h1>
           <AdminActions />
         </div>
         <p className={styles.subheading}>Live overview of your sales pipeline · Arabic Talent CRM</p>
 
         {/* ── Stat cards ───────────────────────────────────────────── */}
-        <div className={`${styles.statsGrid} grid gap-4`}>
+        <div className={styles.statsGrid}>
           {statCards.map((s) => (
             <div key={s.label} className={`${styles.statCard} ${s.accent}`}>
               <div className={styles.statIcon}>{s.icon}</div>

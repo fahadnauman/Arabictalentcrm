@@ -164,7 +164,9 @@ function ChatFeedInner({
   activeFollowUpId?: string | null;
 }) {
   const router                    = useRouter();
-  const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs || []);
+  const [messages, setMessages]   = useState<ChatMessage[]>(() =>
+    (initialMsgs || []).map((m) => ({ ...m, status: (m.status || "SENT").toUpperCase() }))
+  );
   const [text, setText]           = useState("");
   const [showMenu, setShowMenu]   = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
@@ -172,6 +174,7 @@ function ChatFeedInner({
   const [errorId, setErrorId]     = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
+  const [isSending, setIsSending]     = useState(false);
   const [recordingState, setRecordingState] = useState<"idle" | "recording" | "locked">("idle");
   const [recordDuration, setRecordDuration] = useState(0);
   const [cancelThresholdReached, setCancelThresholdReached] = useState(false);
@@ -204,97 +207,49 @@ function ChatFeedInner({
 
   useEffect(() => { scrollDown(); }, [messages.length, scrollDown]);
 
+  // Absolute DB-to-UI polling: fetch fresh messages from /api/leads/${leadId}/messages
+  const fetchFreshMessages = useCallback(async () => {
+    if (!leadId) return;
+    try {
+      const res = await fetch(`/api/leads/${leadId}/messages?_t=${Date.now()}`, {
+        cache: "no-store",
+        headers: {
+          "Cache-Control": "no-cache, no-store, must-revalidate",
+          Pragma: "no-cache",
+        },
+      });
+      if (!res.ok) return;
+      const freshMsgs: ChatMessage[] = await res.json();
+      setMessages(freshMsgs.map((m) => ({ ...m, status: (m.status || "SENT").toUpperCase() })));
+      router.refresh();
+    } catch (err) {
+      // Silently ignore transient network polling errors
+    }
+  }, [leadId, router]);
+
   // Sync state with server revalidations (e.g. router.refresh)
   useEffect(() => {
-    const list = initialMsgs || [];
-    setMessages((prev) => {
-      const prevList = prev || [];
-      const pendingOrFailed = prevList.filter(
-        (m) => m.status === "pending" || m.status === "failed" || m.pending || m.failed
-      );
-      if (pendingOrFailed.length === 0) {
-        return list.map((m) => ({ ...m, status: m.status || "SENT" }));
-      }
-      const initialIds = new Set(list.map((m) => m.id));
-      const stillPending = pendingOrFailed.filter((m) => !initialIds.has(m.id));
-      return [
-        ...list.map((m) => ({ ...m, status: m.status || "SENT" })),
-        ...stillPending,
-      ];
-    });
+    if (initialMsgs) {
+      setMessages(initialMsgs.map((m) => ({ ...m, status: (m.status || "SENT").toUpperCase() })));
+    }
   }, [initialMsgs]);
 
   // Auto-polling: fetch fresh messages every 2.5 seconds (refreshInterval: 2500)
   useEffect(() => {
     if (!leadId) return;
-    let isMounted = true;
     const refreshInterval = 2500;
 
-    async function pollMessages() {
-      try {
-        const res = await fetch(`/api/leads/${leadId}/messages?_t=${Date.now()}`, {
-          cache: "no-store",
-          headers: {
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            Pragma: "no-cache",
-          },
-        });
-        if (!res.ok) return;
-        const freshMsgs: ChatMessage[] = await res.json();
-        if (!isMounted) return;
-
-        setMessages((prev) => {
-          const prevList = prev || [];
-          const prevMap = new Map(prevList.map((m) => [m.id, m]));
-          let hasChanges = prevList.length !== freshMsgs.length;
-
-          if (!hasChanges) {
-            for (const fresh of freshMsgs) {
-              const old = prevMap.get(fresh.id);
-              if (!old) {
-                hasChanges = true;
-                break;
-              }
-              const prevStatus = String(old.status ?? "").trim().toUpperCase();
-              const freshStatus = String(fresh.status ?? "").trim().toUpperCase();
-              if (prevStatus !== freshStatus) {
-                hasChanges = true;
-                break;
-              }
-            }
-          }
-
-          if (!hasChanges) {
-            return prev;
-          }
-
-          const freshIds = new Set(freshMsgs.map((m) => m.id));
-          const stillPending = prevList.filter(
-            (m) => (m.pending || m.failed || m.status === "pending" || m.status === "failed") && !freshIds.has(m.id)
-          );
-
-          return [
-            ...freshMsgs.map((m) => ({ ...m, status: (m.status || "SENT").toUpperCase() })),
-            ...stillPending,
-          ];
-        });
-
-        // Trigger router refresh to sync server components in background
-        router.refresh();
-      } catch (err) {
-        // Silently ignore transient network polling errors
-      }
-    }
-
     // Immediate initial poll on mount
-    pollMessages();
+    fetchFreshMessages();
 
-    const intervalId = setInterval(pollMessages, refreshInterval);
+    const intervalId = setInterval(() => {
+      fetchFreshMessages();
+    }, refreshInterval);
+
     return () => {
-      isMounted = false;
       clearInterval(intervalId);
     };
-  }, [leadId, router]);
+  }, [leadId, fetchFreshMessages]);
 
   // Trigger 1: Synchronize 'Mark as Read' with host device whenever the chat window is opened
   useEffect(() => {
@@ -310,160 +265,51 @@ function ChatFeedInner({
     el.style.height = Math.min(el.scrollHeight, 125) + "px";
   }
 
-  function handleSend(customBody?: string, retryId?: string) {
+  async function handleSend(customBody?: string) {
     const bodyToSend = (typeof customBody === "string" ? customBody : text).trim();
-    if (!bodyToSend) return;
+    if (!bodyToSend || isSending) return;
 
     // Trigger 2: Instantly sync 'Mark as Read' right before an agent sends an outbound reply
     fetch(`/api/leads/${leadId}/read`, { method: "POST" }).catch(() => {});
 
-    const tempId = retryId || `pending-${Date.now()}`;
-
-    if (retryId) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId
-            ? { ...m, status: "pending", pending: true, failed: false }
-            : m
-        )
-      );
-    } else {
-      // 1. Instantly append temporary optimistic message object with 'pending' status
-      const optimistic: ChatMessage = {
-        id:         tempId,
-        body:       bodyToSend,
-        direction:  "OUTBOUND",
-        sentAt:     new Date().toISOString(),
-        senderName: agentName,
-        status:     "pending",
-        pending:    true,
-        failed:     false,
-        retryData:  { type: "text", body: bodyToSend },
-      };
-
-      setMessages((prev) => [...prev, optimistic]);
-      setText("");
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
+    setIsSending(true);
+    setText("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
     }
 
-    scrollDown();
-
-    // 2. Execute background fetch to server
-    (async () => {
-      try {
-        const res = await sendMessage(leadId, bodyToSend);
-        if (!res.success) {
-          const httpStatus = res.status || 500;
-          const rawResponse = res.rawResponse || res.error || "Unknown server response";
-          console.log("Chat Message Error - HTTP status code:", httpStatus);
-          console.log("Chat Message Error - raw error response:", rawResponse);
-          console.error("[Chat Message Failure]", { status: httpStatus, rawResponse, error: res.error });
-          setErrorMessage(`⚠ Failed to send message (HTTP ${httpStatus}): ${res.error || rawResponse}`);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    status: "failed",
-                    pending: false,
-                    failed: true,
-                    retryData: { type: "text", body: bodyToSend },
-                  }
-                : m
-            )
-          );
-          setErrorId(tempId);
-          return;
-        }
-
-        // Server responded 200/201 -> Update specific message to 'sent'
-        const saved = res.data;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...saved,
-                  status: "SENT",
-                  pending: false,
-                  failed: false,
-                }
-              : m
-          )
-        );
+    try {
+      const res = await sendMessage(leadId, bodyToSend);
+      if (!res.success) {
+        const httpStatus = res.status || 500;
+        const rawResponse = res.rawResponse || res.error || "Unknown server response";
+        console.error("[Chat Message Failure]", { status: httpStatus, rawResponse, error: res.error });
+        setErrorMessage(`⚠ Failed to send message (HTTP ${httpStatus}): ${res.error || rawResponse}`);
+        setErrorId(`err-${Date.now()}`);
+      } else {
         setErrorId(null);
         setErrorMessage(null);
-      } catch (err: any) {
-        const httpStatus = err?.status || err?.statusCode || err?.response?.status || (typeof err?.digest === "string" ? `Server Action Error (${err.digest})` : 500);
-        const rawResponse = err?.response?.data || (err instanceof Error ? `${err.name}: ${err.message}` : String(err));
-        console.log("Chat Message Error - HTTP status code:", httpStatus);
-        console.log("Chat Message Error - raw error response:", rawResponse);
-        console.error("[Chat Message Exception]", { status: httpStatus, rawResponse, error: err, digest: err?.digest });
-        setErrorMessage(`⚠ Failed to send message (Status: ${httpStatus}): ${err?.message || "Check console"}`);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...m,
-                  status: "failed",
-                  pending: false,
-                  failed: true,
-                  retryData: { type: "text", body: bodyToSend },
-                }
-              : m
-          )
-        );
-        setErrorId(tempId);
+        // Direct DB-to-UI pipeline: immediately fetch fresh DB messages
+        await fetchFreshMessages();
+        scrollDown();
       }
-    })();
+    } catch (err: any) {
+      const httpStatus = err?.status || err?.statusCode || 500;
+      console.error("[Chat Message Exception]", { status: httpStatus, error: err });
+      setErrorMessage(`⚠ Failed to send message: ${err?.message || "Check console"}`);
+      setErrorId(`err-${Date.now()}`);
+    } finally {
+      setIsSending(false);
+    }
   }
 
   async function processUpload(
     file: File | Blob,
     filename: string,
-    mimeType: string,
-    retryId?: string
+    mimeType: string
   ) {
     setIsUploading(true);
-    const tempId = retryId || `pending-media-${Date.now()}`;
-    const localPreviewUrl = URL.createObjectURL(file);
-
-    if (retryId) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId
-            ? {
-                ...m,
-                status: "pending",
-                pending: true,
-                failed: false,
-                mediaUrl: m.mediaUrl || localPreviewUrl,
-              }
-            : m
-        )
-      );
-    } else {
-      // 1. Instantly append temporary optimistic media object with 'pending' status
-      const isVisualOpt = mimeType.startsWith("image/") || mimeType.startsWith("video/");
-      const optimistic: ChatMessage = {
-        id:         tempId,
-        body:       isVisualOpt ? "" : filename,
-        direction:  "OUTBOUND",
-        sentAt:     new Date().toISOString(),
-        senderName: agentName,
-        status:     "pending",
-        pending:    true,
-        failed:     false,
-        mediaUrl:   localPreviewUrl,
-        mediaType:  mimeType,
-        retryData:  { type: "media", file, filename, mimeType },
-      };
-
-      setMessages((prev) => [...prev, optimistic]);
-    }
-
-    scrollDown();
+    setIsSending(true);
 
     try {
       const cleanPhone = (leadPhone || "").replace(/\D/g, "");
@@ -535,10 +381,6 @@ function ChatFeedInner({
         finalFileName = filename;
       }
 
-      // 1. Dispatch upload
-      let evoData: any = null;
-      let recordRes: any = null;
-
       if (isAudio) {
         // WhatsApp Push-To-Talk (PTT) Voice Note: Route through server upload handler with native PTT flags
         const uploadFormData = new FormData();
@@ -558,42 +400,16 @@ function ChatFeedInner({
           const rawResponse = uploadJson?.error || uploadJson?.rawResponse || JSON.stringify(uploadJson);
           console.error("[Voice Note PTT Upload Error]", { status: httpStatus, rawResponse });
           setErrorMessage(`⚠ Voice note upload failed (HTTP ${httpStatus}): ${rawResponse || "Check console"}`);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    status: "failed",
-                    pending: false,
-                    failed: true,
-                    retryData: { type: "media", file, filename, mimeType },
-                  }
-                : m
-            )
-          );
-          setErrorId(tempId);
+          setErrorId(`err-${Date.now()}`);
           return;
         }
 
-        if (uploadJson?.success && uploadJson?.message) {
-          const saved: ChatMessage = {
-            id: uploadJson.message.id,
-            body: uploadJson.message.body,
-            direction: uploadJson.message.direction,
-            sentAt: uploadJson.message.sentAt,
-            senderName: uploadJson.message.senderName || agentName,
-            status: "SENT",
-            mediaUrl: localPreviewUrl,
-            mediaType: uploadJson.message.mediaType,
-          };
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...saved, pending: false, failed: false } : m))
-          );
-          setErrorId(null);
-          setErrorMessage(null);
-        }
+        setErrorId(null);
+        setErrorMessage(null);
+        await fetchFreshMessages();
+        scrollDown();
       } else {
-        // 2. Non-audio files: Direct POST to VPS Nginx endpoint (bypasses Vercel 4.5MB payload limit)
+        // Non-audio files: Direct POST to VPS Nginx endpoint (bypasses Vercel 4.5MB payload limit)
         const isVisualMedia = computedMediatype === "image" || computedMediatype === "video";
         const formData = new FormData();
         formData.append("file", file, finalFileName);
@@ -610,111 +426,45 @@ function ChatFeedInner({
           body: formData,
         });
 
-        evoData = await res.json().catch(() => null);
+        const evoData = await res.json().catch(() => null);
 
         if (!res.ok) {
           const httpStatus = res.status || 500;
           const rawResponse = evoData?.response?.message || evoData?.error || (typeof evoData === "string" ? evoData : JSON.stringify(evoData));
-          console.log("Direct VPS Upload Error - exact HTTP status code:", httpStatus);
-          console.log("Direct VPS Upload Error - raw error response:", rawResponse);
           console.error("[Direct VPS Upload Error]", {
             status: httpStatus,
             rawResponse,
             error: evoData?.error,
           });
           setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${evoData?.error || rawResponse || "Check console for details"}`);
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    status: "failed",
-                    pending: false,
-                    failed: true,
-                    retryData: { type: "media", file, filename, mimeType },
-                  }
-                : m
-            )
-          );
-          setErrorId(tempId);
+          setErrorId(`err-${Date.now()}`);
           return;
         }
 
-        // Server responded with 200/201 -> Update specific message to 'sent'
         try {
           const evoMetadata = {
             key: { id: evoData?.key?.id || null },
             keyId: evoData?.key?.id || null,
             status: evoData?.status || "SENT",
           };
-          recordRes = await recordOutboundMedia(leadId, isVisualMedia ? "" : finalFileName, targetMime, evoMetadata);
+          await recordOutboundMedia(leadId, isVisualMedia ? "" : finalFileName, targetMime, evoMetadata);
         } catch (saErr) {
           console.warn("recordOutboundMedia Server Action exception (handled gracefully):", saErr);
         }
 
-        if (recordRes?.success && recordRes?.data) {
-          const saved: ChatMessage = recordRes.data;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...saved,
-                    mediaUrl: localPreviewUrl, // Maintain local preview for agent
-                    status: "SENT",
-                    pending: false,
-                    failed: false,
-                  }
-                : m
-            )
-          );
-        } else {
-          // Successful WhatsApp delivery with graceful optimistic update
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === tempId
-                ? {
-                    ...m,
-                    id: evoData?.key?.id || tempId,
-                    mediaUrl: localPreviewUrl,
-                    status: "SENT",
-                    pending: false,
-                    failed: false,
-                  }
-                : m
-            )
-          );
-        }
         setErrorId(null);
         setErrorMessage(null);
+        await fetchFreshMessages();
+        scrollDown();
       }
     } catch (err: any) {
       const httpStatus = err?.status || err?.statusCode || 500;
-      const rawResponse = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
-      console.log("Direct Upload Exception - exact HTTP status code:", httpStatus);
-      console.log("Direct Upload Exception - raw error response:", rawResponse);
-      console.error("[Direct Upload Exception]", {
-        status: httpStatus,
-        rawResponse,
-        error: err,
-        message: err?.message,
-      });
+      console.error("[Direct Upload Exception]", { status: httpStatus, error: err });
       setErrorMessage(`⚠ Upload failed (Status: ${httpStatus}): ${err?.message || "Check console"}`);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === tempId
-            ? {
-                ...m,
-                status: "failed",
-                pending: false,
-                failed: true,
-                retryData: { type: "media", file, filename, mimeType },
-              }
-            : m
-        )
-      );
-      setErrorId(tempId);
+      setErrorId(`err-${Date.now()}`);
     } finally {
       setIsUploading(false);
+      setIsSending(false);
     }
   }
 
@@ -877,16 +627,7 @@ function ChatFeedInner({
     startTx(async () => {
       try {
         await updateLeadInfo(leadId, { name: "", company: "", notes: "", courseType: course });
-        
-        // Drop a system notification bubble directly into the chat feed
-        const sysMsg: ChatMessage = {
-          id: `sys-${Date.now()}`,
-          body: `⚡ Course updated to: ${course}`,
-          direction: "OUTBOUND",
-          sentAt: new Date().toISOString(),
-          senderName: "System",
-        };
-        setMessages(prev => [...prev, sysMsg]);
+        await fetchFreshMessages();
       } catch (err) {
         console.error(err);
       }
@@ -899,25 +640,11 @@ function ChatFeedInner({
     (msg: ChatMessage) => {
       setErrorId(null);
       setErrorMessage(null);
-      if (msg.retryData?.type === "text" && msg.retryData.body) {
-        handleSend(msg.retryData.body, msg.id);
-      } else if (
-        msg.retryData?.type === "media" &&
-        msg.retryData.file &&
-        msg.retryData.filename &&
-        msg.retryData.mimeType
-      ) {
-        processUpload(
-          msg.retryData.file,
-          msg.retryData.filename,
-          msg.retryData.mimeType,
-          msg.id
-        );
-      } else if (msg.body) {
-        handleSend(msg.body, msg.id);
+      if (msg.body) {
+        handleSend(msg.body);
       }
     },
-    [leadId, agentName, leadPhone, scrollDown]
+    [handleSend]
   );
 
   const renderedMessages = useMemo(() => {
@@ -1107,55 +834,25 @@ function ChatFeedInner({
                   <span className={chatStyles.bubbleTime}>{fmtTime(msg.sentAt)}</span>
                   {isOut && (
                     <span className={chatStyles.bubbleStatus}>
-                      {msg.status === "failed" || msg.status === "FAILED" || msg.failed ? (
-                        <span className={chatStyles.statusFailed}>
-                          <span>⚠ Failed</span>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleRetry(msg);
-                            }}
-                            className={chatStyles.retryBtn}
-                            title="Retry sending message"
-                          >
-                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
-                            </svg>
-                            Retry
-                          </button>
-                        </span>
-                      ) : msg.status === "pending" || msg.status === "PENDING" || msg.status === "QUEUED" || msg.status === "0" || msg.pending ? (
-                        <span className={chatStyles.statusClock} title="Sending…">
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="12" cy="12" r="10" />
-                            <polyline points="12 6 12 12 16 14" />
-                          </svg>
-                        </span>
-                      ) : (() => {
+                      {(() => {
                         const raw = String(msg.status ?? "").trim().toUpperCase();
-                        // Ack 3 = Read (Double Blue), Ack 4 = Played (Voice Note Double Blue)
-                        const isPlayed = raw === "4" || raw === "PLAYED";
-                        const isRead = raw === "3" || raw === "READ" || isPlayed;
-                        // Ack 2 = Delivered (Double Grey)
-                        const isDelivered = raw === "2" || raw === "DELIVERED";
 
-                        // Absolute fallback 1: If message.status === "READ" (or ack === 3), render double blue tick
-                        if (isRead) {
+                        // Priority 1: READ or PLAYED -> Double Blue Tick SVG (#53bdeb)
+                        if (raw === "READ" || raw === "PLAYED" || raw === "3" || raw === "4") {
                           return (
                             <span
                               key={`read-${msg.id}-${raw}`}
                               className={chatStyles.statusRead}
                               style={{ color: "#53bdeb", display: "inline-flex", alignItems: "center" }}
-                              title={isPlayed ? "Played" : "Read"}
+                              title={raw === "PLAYED" || raw === "4" ? "Played" : "Read"}
                             >
                               <DoubleTickIcon color="#53bdeb" />
                             </span>
                           );
                         }
 
-                        // Absolute fallback 2: If message.status === "DELIVERED" (or ack === 2), render double grey tick
-                        if (isDelivered) {
+                        // Priority 2: DELIVERED -> Double Grey Tick SVG (#8696a0)
+                        if (raw === "DELIVERED" || raw === "2") {
                           return (
                             <span
                               key={`deliv-${msg.id}-${raw}`}
@@ -1168,7 +865,30 @@ function ChatFeedInner({
                           );
                         }
 
-                        // Default / Ack 1: Single grey tick (Sent)
+                        // Priority 3: FAILED
+                        if (raw === "FAILED" || msg.failed) {
+                          return (
+                            <span className={chatStyles.statusFailed}>
+                              <span>⚠ Failed</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRetry(msg);
+                                }}
+                                className={chatStyles.retryBtn}
+                                title="Retry sending message"
+                              >
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67" />
+                                </svg>
+                                Retry
+                              </button>
+                            </span>
+                          );
+                        }
+
+                        // Priority 4: Default / SENT (and any other DB status) -> Single Grey Tick SVG (#8696a0)
                         return (
                           <span
                             key={`sent-${msg.id}-${raw}`}
@@ -1449,23 +1169,49 @@ function ChatFeedInner({
                 value={text}
                 onChange={handleInput}
                 onKeyDown={handleKeyDown}
-                placeholder="Type a message… (Enter to send)"
+                placeholder={isSending ? "Sending message…" : "Type a message… (Enter to send)"}
                 rows={1}
-                disabled={isPending}
+                disabled={isPending || isSending}
                 className={chatStyles.input}
                 maxLength={4000}
               />
-              {charCount > 200 && (
+              {isSending && (
+                <span style={{ fontSize: "0.72rem", color: "#20C997", padding: "0 0.5rem", display: "inline-flex", alignItems: "center", gap: "0.3rem" }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
+                    <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
+                      <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+                    </path>
+                  </svg>
+                  Sending…
+                </span>
+              )}
+              {charCount > 200 && !isSending && (
                 <span className={chatStyles.charCount}>{charCount}/4000</span>
               )}
             </div>
 
             {/* Dynamic Swap: Prominent Send Button if text typed, WhatsApp Mic if empty */}
-            {text.trim().length > 0 ? (
+            {isSending ? (
+              <button
+                type="button"
+                disabled
+                className={chatStyles.prominentSendBtn}
+                style={{ opacity: 0.85, cursor: "not-allowed" }}
+                title="Sending message…"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <circle cx="12" cy="12" r="10" strokeOpacity="0.3"/>
+                  <path d="M12 2a10 10 0 0 1 10 10" strokeLinecap="round">
+                    <animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/>
+                  </path>
+                </svg>
+              </button>
+            ) : text.trim().length > 0 ? (
               <button
                 type="button"
                 onClick={() => handleSend()}
-                disabled={isPending}
+                disabled={isPending || isSending}
                 className={chatStyles.prominentSendBtn}
                 title="Send (Enter)"
               >
@@ -1490,7 +1236,7 @@ function ChatFeedInner({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={() => stopRecording(true)}
-                disabled={isPending || isUploading}
+                disabled={isPending || isUploading || isSending}
                 className={chatStyles.micRecordBtn}
                 title="Hold to record, slide left to cancel, swipe up to lock"
               >

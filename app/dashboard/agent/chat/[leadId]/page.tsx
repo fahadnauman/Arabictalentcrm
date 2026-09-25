@@ -46,7 +46,10 @@ export default async function ChatPage({
   const user = await verifyToken(token);
   if (!user || user.role !== "AGENT") redirect("/login");
 
-  const { leadId } = await params;
+  const resolvedParams = await params;
+  const leadId = resolvedParams?.leadId;
+  if (!leadId) redirect("/dashboard/agent/inbox");
+
   const [lead, activeAgents] = await Promise.all([
     getLeadWithMessages(leadId, user.id),
     prisma.user.findMany({
@@ -69,7 +72,7 @@ export default async function ChatPage({
     ? `AED ${(Number(lead.dealValueCents) / 100).toLocaleString("en-AE")}`
     : null;
 
-  const initialMsgs: ChatMessage[] = lead.messages.map((m) => {
+  const initialMsgs: ChatMessage[] = (lead.messages || []).map((m) => {
     const hasMedia = !!(m.mediaUrl || (m.mediaType && (
       m.mediaType.includes("image") ||
       m.mediaType.includes("audio") ||
@@ -87,7 +90,7 @@ export default async function ChatPage({
       id:         m.id,
       body:       m.body,
       direction:  m.direction,
-      sentAt:     m.sentAt.toISOString(),
+      sentAt:     m.sentAt ? m.sentAt.toISOString() : new Date().toISOString(),
       senderName: m.sentBy?.name ?? null,
       status:     m.status ? m.status.toUpperCase() : "SENT",
       mediaUrl:   m.mediaUrl?.includes("localhost:3000") ? `/api/media/${m.id}` : (m.mediaUrl || (hasMedia ? `/api/media/${m.id}` : null)),
@@ -113,7 +116,20 @@ export default async function ChatPage({
   };
 
   return (
-    <div className={styles.shell} style={{ display: "flex", flexDirection: "column", height: "100dvh" }}>
+    <div
+      className={styles.shell}
+      style={{
+        width: "100%",
+        maxWidth: "480px",
+        margin: "0 auto",
+        height: "100dvh",
+        display: "flex",
+        flexDirection: "column",
+        overflowX: "hidden",
+        boxSizing: "border-box",
+        position: "relative",
+      }}
+    >
 
       {/* ── Top bar ───────────────────────────────────────────────── */}
       <header className={styles.topbar} style={{ flexShrink: 0 }}>
@@ -126,13 +142,6 @@ export default async function ChatPage({
           <CallLeadButton leadId={lead.id} leadName={lead.name} />
           {/* Lead Info trigger button */}
           <LeadInfoTrigger lead={serialisedLead} />
-          {/* Transfer Lead button */}
-          <TransferLeadButton
-            leadId={lead.id}
-            leadName={lead.name}
-            currentAgentId={user.id}
-            initialAgents={activeAgents}
-          />
           <form action="/api/auth/logout" method="POST">
             <button type="submit" className={styles.logoutBtn}>Sign out</button>
           </form>

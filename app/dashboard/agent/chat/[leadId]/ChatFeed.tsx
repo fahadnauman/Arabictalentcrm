@@ -40,30 +40,38 @@ export interface ChatMessage {
 }
 
 interface Props {
-  leadId:            string;
-  leadPhone:         string;
+  leadId?:            string;
+  leadPhone?:         string;
   leadName?:         string;
-  agentName:         string;
-  initialMsgs:       ChatMessage[];
+  agentName?:         string;
+  initialMsgs?:       ChatMessage[];
   activeFollowUpId?: string | null;
+  chatData?:         any;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-GB", {
-    hour:   "2-digit",
-    minute: "2-digit",
-  });
+  try {
+    const d = new Date(iso || Date.now());
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString("en-GB", {
+      hour:   "2-digit",
+      minute: "2-digit",
+    });
+  } catch(e) { return ""; }
 }
 function fmtDate(iso: string) {
-  const d = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
+  try {
+    const d = new Date(iso || Date.now());
+    if (isNaN(d.getTime())) return "Unknown Date";
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
 
-  if (d.toDateString() === today.toDateString())     return "Today";
-  if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+    if (d.toDateString() === today.toDateString())     return "Today";
+    if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
+    return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "2-digit" });
+  } catch(e) { return "Unknown Date"; }
 }
 
 interface MsgGroup { date: string; messages: ChatMessage[] }
@@ -139,17 +147,24 @@ function DoubleTickIcon({ color = "#8696a0", className, style }: { color?: strin
   );
 }
 
-// ── Component ────────────────────────────────────────────────────────────
-export default function ChatFeed({
+// ── Internal Feed Component ──────────────────────────────────────────────
+function ChatFeedInner({
   leadId,
   leadPhone,
   leadName,
   agentName,
-  initialMsgs,
+  initialMsgs = [],
   activeFollowUpId,
-}: Props) {
+}: {
+  leadId: string;
+  leadPhone: string;
+  leadName: string;
+  agentName: string;
+  initialMsgs?: ChatMessage[];
+  activeFollowUpId?: string | null;
+}) {
   const router                    = useRouter();
-  const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs);
+  const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs || []);
   const [text, setText]           = useState("");
   const [showMenu, setShowMenu]   = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
@@ -191,26 +206,29 @@ export default function ChatFeed({
 
   // Sync state with server revalidations (e.g. router.refresh)
   useEffect(() => {
+    const list = initialMsgs || [];
     setMessages((prev) => {
-      const pendingOrFailed = prev.filter(
+      const prevList = prev || [];
+      const pendingOrFailed = prevList.filter(
         (m) => m.status === "pending" || m.status === "failed" || m.pending || m.failed
       );
       if (pendingOrFailed.length === 0) {
-        return initialMsgs.map((m) => ({ ...m, status: m.status || "SENT" }));
+        return list.map((m) => ({ ...m, status: m.status || "SENT" }));
       }
-      const initialIds = new Set(initialMsgs.map((m) => m.id));
+      const initialIds = new Set(list.map((m) => m.id));
       const stillPending = pendingOrFailed.filter((m) => !initialIds.has(m.id));
       return [
-        ...initialMsgs.map((m) => ({ ...m, status: m.status || "SENT" })),
+        ...list.map((m) => ({ ...m, status: m.status || "SENT" })),
         ...stillPending,
       ];
     });
   }, [initialMsgs]);
 
-  // Auto-polling: fetch fresh messages every 3 seconds (refreshInterval: 3000)
+  // Auto-polling: fetch fresh messages every 2.5 seconds (refreshInterval: 2500)
   useEffect(() => {
+    if (!leadId) return;
     let isMounted = true;
-    const refreshInterval = 3000;
+    const refreshInterval = 2500;
 
     async function pollMessages() {
       try {
@@ -226,8 +244,9 @@ export default function ChatFeed({
         if (!isMounted) return;
 
         setMessages((prev) => {
-          const prevMap = new Map(prev.map((m) => [m.id, m]));
-          let hasChanges = prev.length !== freshMsgs.length;
+          const prevList = prev || [];
+          const prevMap = new Map(prevList.map((m) => [m.id, m]));
+          let hasChanges = prevList.length !== freshMsgs.length;
 
           if (!hasChanges) {
             for (const fresh of freshMsgs) {
@@ -250,7 +269,7 @@ export default function ChatFeed({
           }
 
           const freshIds = new Set(freshMsgs.map((m) => m.id));
-          const stillPending = prev.filter(
+          const stillPending = prevList.filter(
             (m) => (m.pending || m.failed || m.status === "pending" || m.status === "failed") && !freshIds.has(m.id)
           );
 
@@ -267,6 +286,9 @@ export default function ChatFeed({
       }
     }
 
+    // Immediate initial poll on mount
+    pollMessages();
+
     const intervalId = setInterval(pollMessages, refreshInterval);
     return () => {
       isMounted = false;
@@ -276,6 +298,7 @@ export default function ChatFeed({
 
   // Trigger 1: Synchronize 'Mark as Read' with host device whenever the chat window is opened
   useEffect(() => {
+    if (!leadId) return;
     fetch(`/api/leads/${leadId}/read`, { method: "POST" }).catch(() => {});
   }, [leadId]);
 
@@ -923,15 +946,17 @@ export default function ChatFeed({
         <div className={chatStyles.dateDivider}>
           <span>{group.date}</span>
         </div>
-        {group.messages.map((msg) => {
+        {group.messages.map((msg, index) => {
           const isOut = msg.direction === "OUTBOUND";
           const isPendingMsg = msg.status === "pending" || msg.pending;
           const isFailedMsg = msg.status === "failed" || msg.failed;
           const statusKey = String(msg.status ?? "").trim().toUpperCase();
+          const safeId = String(msg.id || `msg-${index}`);
+          const safeBody = typeof msg.body === "string" ? msg.body : (msg.body ? JSON.stringify(msg.body) : "");
 
           return (
             <div
-              key={`${msg.id}-${statusKey}`}
+              key={`${safeId}-${statusKey}`}
               className={`${chatStyles.bubbleWrap} ${isOut ? chatStyles.bubbleWrapOut : chatStyles.bubbleWrapIn}`}
             >
               
@@ -987,16 +1012,16 @@ export default function ChatFeed({
                   const isMediaFileName =
                     hasMedia &&
                     (isImg || isVid) &&
-                    /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm|mkv|3gp|avi)$/i.test(msg.body.trim());
+                    /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm|mkv|3gp|avi)$/i.test(safeBody.trim());
 
                   const isFallbackText = 
-                    !msg.body ||
-                    msg.body.trim() === "Media Attachment" || 
-                    msg.body.trim().startsWith("voice_note.") || 
-                    msg.body.trim() === "Voice Note" ||
+                    !safeBody ||
+                    safeBody.trim() === "Media Attachment" || 
+                    safeBody.trim().startsWith("voice_note.") || 
+                    safeBody.trim() === "Voice Note" ||
                     isMediaFileName;
 
-                  const showCaption = !isFallbackText && msg.body.trim().length > 0;
+                  const showCaption = !isFallbackText && safeBody.trim().length > 0;
 
                   return (
                     <>
@@ -1006,7 +1031,7 @@ export default function ChatFeed({
                             <a href={mediaSrc} target="_blank" rel="noopener noreferrer" style={{ display: "block" }}>
                               <img
                                 src={mediaSrc}
-                                alt={showCaption ? msg.body : "Image attachment"}
+                                alt={showCaption ? safeBody : "Image attachment"}
                                 loading="lazy"
                                 style={{
                                   maxWidth: "100%",
@@ -1062,7 +1087,7 @@ export default function ChatFeed({
                                 <polyline points="10 9 9 9 8 9"/>
                               </svg>
                               <span style={{ fontSize: "0.82rem", fontWeight: 600, wordBreak: "break-all" }}>
-                                {showCaption ? msg.body : "Document Attachment"}
+                                {showCaption ? safeBody : "Document Attachment"}
                               </span>
                             </a>
                           )}
@@ -1072,7 +1097,7 @@ export default function ChatFeed({
                       {/* Display actual text message/caption only (never fallback 'Media Attachment' text) */}
                       {(!hasMedia || showCaption) && (
                         <p className={chatStyles.bubbleText}>
-                          {isFallbackText ? "" : msg.body}
+                          {isFallbackText ? "" : safeBody}
                         </p>
                       )}
                     </>
@@ -1489,5 +1514,49 @@ export default function ChatFeed({
         />
       )}
     </>
+  );
+}
+
+// ── Exported Chat Component with Strict Desktop / PC Fallback ────────────
+export default function ChatFeed(props: Props) {
+  const effectiveLeadId = props.leadId || props.chatData?.id || props.chatData?.leadId;
+  const hasChatData = Boolean(props.chatData || (props.leadId && (props.leadPhone || props.initialMsgs)));
+
+  // Strict fallback as requested: if (!leadId || !chatData) return ...
+  if (!effectiveLeadId || (!props.leadId && !props.chatData)) {
+    return (
+      <div
+        className={chatStyles.emptyFeed}
+        style={{
+          minHeight: "300px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          height: "100%",
+          padding: "3rem 1.5rem",
+          textAlign: "center",
+        }}
+      >
+        <div className={chatStyles.emptyIcon} style={{ fontSize: "2.5rem", opacity: 0.6 }}>💬</div>
+        <div className={chatStyles.emptyTitle} style={{ fontSize: "1rem", fontWeight: 700, color: "rgba(240,240,255,0.5)", marginTop: "0.5rem" }}>
+          Select a chat
+        </div>
+        <div className={chatStyles.emptyBody} style={{ fontSize: "0.8rem", color: "rgba(139,138,168,0.7)", marginTop: "0.25rem" }}>
+          Choose a lead from the inbox to open their conversation.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ChatFeedInner
+      leadId={effectiveLeadId}
+      leadPhone={props.leadPhone || props.chatData?.phone || ""}
+      leadName={props.leadName || props.chatData?.name || "Lead"}
+      agentName={props.agentName || "Agent"}
+      initialMsgs={props.initialMsgs || props.chatData?.messages || []}
+      activeFollowUpId={props.activeFollowUpId ?? props.chatData?.activeFollowUpId ?? null}
+    />
   );
 }

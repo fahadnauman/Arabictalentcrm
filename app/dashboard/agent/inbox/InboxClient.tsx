@@ -56,6 +56,8 @@ const IconChevron = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="
 
 // Extract a pure component for the Lead Card and memoize it to prevent re-renders
 const LeadCard = React.memo(({ lead }: { lead: any }) => {
+  if (!lead || !lead.id) return null;
+
   const meta   = STATUS_META[lead.status] ?? STATUS_META["NEW_LEAD"];
   const chance = SALE_CHANCE[lead.status] ?? 35;
   const initials = (lead.name || "U").split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase();
@@ -164,7 +166,7 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
 });
 LeadCard.displayName = "LeadCard";
 
-export default function InboxClient({ initialLeads, activeCount }: { initialLeads: any[], activeCount: number }) {
+export default function InboxClient({ initialLeads = [], activeCount = 0 }: { initialLeads?: any[], activeCount?: number }) {
   const searchParams = useSearchParams();
   const filterParam = searchParams.get("filter")?.toLowerCase();
 

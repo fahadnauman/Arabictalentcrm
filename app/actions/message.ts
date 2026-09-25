@@ -140,9 +140,9 @@ export async function markChatAsRead(leadId: string): Promise<{ success: boolean
     }
 
     return { success: true, count: readMessages.length };
-  } catch (err: any) {
-    console.error("markChatAsRead exception:", err);
-    return { success: false, error: err?.message || String(err) };
+  } catch (error: any) {
+    console.error("Mark as read failed:", error);
+    return { success: false, error: error?.message || String(error) };
   }
 }
 

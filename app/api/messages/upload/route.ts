@@ -57,88 +57,62 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Empty file uploaded" }, { status: 400 });
     }
 
-    // 2. Extract and strictly determine the correct MIME type from FormData file object
-    let rawMime = (file.type || "").split(";")[0].trim().toLowerCase();
+    // 2. Extract and determine MIME type from FormData file object
+    const declaredMime = (file.type || "").split(";")[0].trim().toLowerCase();
     const originalName = file.name || "attachment";
     const lowerName = originalName.toLowerCase();
 
-    // If file.type was omitted or generic octet-stream, infer from extension
-    if (!rawMime || rawMime === "application/octet-stream") {
-      if (lowerName.endsWith(".mp4") || lowerName.endsWith(".m4v")) rawMime = "video/mp4";
-      else if (lowerName.endsWith(".mov")) rawMime = "video/quicktime";
-      else if (lowerName.endsWith(".webm")) rawMime = "video/webm";
-      else if (lowerName.endsWith(".3gp")) rawMime = "video/3gpp";
-      else if (lowerName.endsWith(".avi")) rawMime = "video/x-msvideo";
-      else if (lowerName.endsWith(".mkv")) rawMime = "video/x-matroska";
-      else if (lowerName.endsWith(".png")) rawMime = "image/png";
-      else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) rawMime = "image/jpeg";
-      else if (lowerName.endsWith(".webp")) rawMime = "image/webp";
-      else if (lowerName.endsWith(".pdf")) rawMime = "application/pdf";
-      else if (lowerName.endsWith(".ogg") || lowerName.endsWith(".opus")) rawMime = "audio/ogg";
-      else if (lowerName.endsWith(".mp3")) rawMime = "audio/mpeg";
-      else if (lowerName.endsWith(".wav")) rawMime = "audio/wav";
-      else if (lowerName.endsWith(".m4a")) rawMime = "audio/mp4";
-    }
-
-    // 3. Classify media category strictly (Video takes precedence over generic audio/webm)
-    const isVideo =
-      rawMime.startsWith("video/") ||
-      lowerName.endsWith(".mp4") ||
-      lowerName.endsWith(".m4v") ||
-      lowerName.endsWith(".mov") ||
-      lowerName.endsWith(".webm") ||
-      lowerName.endsWith(".3gp") ||
-      lowerName.endsWith(".mkv");
-
+    // 1. Isolate the Audio Fix (Protect Video/Documents)
+    // Wrap .ogg renaming strictly in audio check
     const isAudio =
-      !isVideo &&
-      (rawMime.startsWith("audio/") ||
-       rawMime === "audio/ogg" ||
-       rawMime === "audio/webm" ||
-       rawMime.includes("opus") ||
-       lowerName.endsWith(".ogg") ||
-       lowerName.endsWith(".mp3") ||
-       lowerName.endsWith(".wav") ||
-       lowerName.endsWith(".m4a") ||
-       lowerName.startsWith("voice_note."));
+      declaredMime.startsWith("audio/") ||
+      lowerName.endsWith(".ogg") ||
+      lowerName.endsWith(".opus") ||
+      lowerName.endsWith(".mp3") ||
+      lowerName.endsWith(".wav") ||
+      lowerName.startsWith("voice_note.");
 
-    const isImage = !isVideo && !isAudio && rawMime.startsWith("image/");
+    let fileName: string = originalName;
+    let targetMime: string = declaredMime || "application/octet-stream";
+    let computedMediatype: "audio" | "video" | "image" | "document" = "document";
 
-    // 4. For WhatsApp video compatibility, strictly normalize video mimetype to "video/mp4"
-    // WhatsApp/Baileys requires strict "video/mp4" to avoid "something is wrong with the video file"
-    const targetMime = isVideo
-      ? "video/mp4"
-      : isAudio
-      ? (rawMime || "audio/ogg")
-      : (rawMime || "application/octet-stream");
-
-    const computedMediatype = isVideo ? "video" : isImage ? "image" : isAudio ? "audio" : "document";
-
-    // 5. Ensure fileName strictly has .mp4 for video so Evolution API's lookup sets video/mp4
-    let fileName: string;
-    if (isVideo) {
-      const base = originalName.replace(/\.[^/.]+$/, "");
-      fileName = `${base || "video"}.mp4`;
-    } else if (isAudio) {
+    if (isAudio) {
+      computedMediatype = "audio";
+      targetMime = "audio/ogg";
       const isVoice =
         originalName === "Voice Note" ||
         originalName.startsWith("voice_note.") ||
-        rawMime.includes("ogg") ||
-        rawMime.includes("webm") ||
-        rawMime.includes("opus");
-
-      if (isVoice) {
-        fileName = "voice_note.ogg";
-      } else {
-        let ext = "ogg";
-        if (rawMime.includes("webm")) ext = "webm";
-        else if (rawMime.includes("mp4") || rawMime.includes("m4a")) ext = "m4a";
-        else if (rawMime.includes("wav")) ext = "wav";
-        else if (rawMime.includes("mp3") || rawMime.includes("mpeg")) ext = "mp3";
-        fileName = originalName.includes(".") ? originalName : `${originalName}.${ext}`;
-      }
+        declaredMime.includes("ogg") ||
+        declaredMime.includes("webm") ||
+        declaredMime.includes("opus");
+      fileName = isVoice ? "voice_note.ogg" : originalName;
     } else {
+      // If the file is a video, image, or document, pass the original MIME type and original file extension directly without modification
       fileName = originalName;
+      targetMime = declaredMime || "application/octet-stream";
+
+      if (
+        declaredMime.startsWith("video/") ||
+        lowerName.endsWith(".mp4") ||
+        lowerName.endsWith(".mov") ||
+        lowerName.endsWith(".webm") ||
+        lowerName.endsWith(".mkv") ||
+        lowerName.endsWith(".3gp") ||
+        lowerName.endsWith(".avi")
+      ) {
+        computedMediatype = "video";
+      } else if (
+        declaredMime.startsWith("image/") ||
+        lowerName.endsWith(".jpg") ||
+        lowerName.endsWith(".jpeg") ||
+        lowerName.endsWith(".png") ||
+        lowerName.endsWith(".webp") ||
+        lowerName.endsWith(".gif")
+      ) {
+        computedMediatype = "image";
+      } else {
+        computedMediatype = "document";
+      }
     }
 
     // Persist to DB with verified targetMime
@@ -256,7 +230,15 @@ export async function POST(req: Request) {
           }).catch((err) => console.error("Failed to update message twilioSid:", err));
         }
       } else {
-        // Send Video / Image / Document via sendMedia
+        // Send Video / Image / Document via sendMedia with raw base64, original MIME type, and original file extension
+        let rawBase64 = base64Data.trim();
+        if (rawBase64.includes(";base64,")) {
+          rawBase64 = rawBase64.split(";base64,")[1];
+        } else if (rawBase64.startsWith("data:")) {
+          rawBase64 = rawBase64.substring(rawBase64.indexOf(",") + 1);
+        }
+        rawBase64 = rawBase64.replace(/[\r\n\s]/g, "");
+
         const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
@@ -272,8 +254,8 @@ export async function POST(req: Request) {
             mediatype: computedMediatype,
             mimetype: targetMime,
             caption: caption.trim() || "",
-            media: base64Data,
-            fileName: fileName,
+            media: rawBase64,
+            fileName: originalName,
           }),
         });
 

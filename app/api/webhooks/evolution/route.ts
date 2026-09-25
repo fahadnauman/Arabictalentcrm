@@ -1,1 +1,1 @@
-export { POST, GET } from "@/app/api/whatsapp/webhook/route";
+export { POST, GET, dynamic, revalidate } from "@/app/api/whatsapp/webhook/route";

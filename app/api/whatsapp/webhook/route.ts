@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function POST(req: Request) {
   try {
     let body: any;
@@ -152,6 +155,8 @@ export async function POST(req: Request) {
         }
 
         let existingMsg = null;
+
+        // Step 1: Attempt exact ID match
         if (sidCandidates.length > 0) {
           existingMsg = await prisma.message.findFirst({
             where: {
@@ -164,9 +169,31 @@ export async function POST(req: Request) {
           });
         }
 
-        // Fallback: If not found by SID, match by recipient remoteJid and recent OUTBOUND message (<60s)
+        // Step 2: CRITICAL FALLBACK - Loose Match
+        // If no exact ID match is found in Prisma, execute a loose match:
+        // Query the database for the most recent outbound message associated with that specific remoteJid
+        // (recipient phone number) that currently has an ack status of 0 or 1, and forcefully update its tick status
         if (!existingMsg) {
-          const remoteJid = updateObj.key?.remoteJid || updateObj.remoteJid;
+          let remoteJid =
+            updateObj.key?.remoteJid ||
+            updateObj.remoteJid ||
+            updateObj.key?.participant ||
+            updateObj.participant ||
+            payload.data?.key?.remoteJid ||
+            payload.data?.remoteJid ||
+            payload.key?.remoteJid;
+
+          // If rawSid is a compound key (e.g. true_14632170744@s.whatsapp.net_3EB0...), extract remoteJid
+          if (!remoteJid && rawSid && rawSid.includes("@s.whatsapp.net")) {
+            const parts = rawSid.split("_");
+            for (const p of parts) {
+              if (p.includes("@s.whatsapp.net")) {
+                remoteJid = p;
+                break;
+              }
+            }
+          }
+
           if (remoteJid && !remoteJid.includes("@g.us")) {
             const cleanPhone = remoteJid.replace("@s.whatsapp.net", "").replace("+", "").replace(/\D/g, "");
             const lead = await prisma.lead.findFirst({
@@ -181,21 +208,40 @@ export async function POST(req: Request) {
             });
 
             if (lead) {
-              existingMsg = await prisma.message.findFirst({
+              // Find most recent outbound message with ack status 0 or 1 (QUEUED or SENT)
+              let looseMsg = await prisma.message.findFirst({
                 where: {
                   leadId: lead.id,
                   direction: "OUTBOUND",
-                  createdAt: { gte: new Date(Date.now() - 60000) },
+                  status: { in: ["QUEUED", "SENT"] },
                 },
-                orderBy: { createdAt: "desc" },
+                orderBy: { sentAt: "desc" },
                 select: { id: true, status: true, deliveredAt: true, readAt: true, twilioSid: true },
               });
 
-              if (existingMsg && rawSid && !existingMsg.twilioSid) {
-                await prisma.message.update({
-                  where: { id: existingMsg.id },
-                  data: { twilioSid: rawSid },
-                }).catch(() => {});
+              // If status is READ (3) or PLAYED (4), and no QUEUED/SENT message was found, also check for DELIVERED (2)
+              if (!looseMsg && (newStatus === "READ" || newStatus === "PLAYED")) {
+                looseMsg = await prisma.message.findFirst({
+                  where: {
+                    leadId: lead.id,
+                    direction: "OUTBOUND",
+                    status: "DELIVERED",
+                  },
+                  orderBy: { sentAt: "desc" },
+                  select: { id: true, status: true, deliveredAt: true, readAt: true, twilioSid: true },
+                });
+              }
+
+              if (looseMsg) {
+                existingMsg = looseMsg;
+                // Forcefully backfill twilioSid so subsequent webhooks match on exact ID
+                if (rawSid && !looseMsg.twilioSid) {
+                  await prisma.message.update({
+                    where: { id: looseMsg.id },
+                    data: { twilioSid: rawSid },
+                  }).catch(() => {});
+                }
+                console.log(`[Evolution Webhook CRITICAL FALLBACK] Matched loose message ${looseMsg.id} for lead ${lead.id} (${cleanPhone}) with ack: ${ackNum} -> ${newStatus}`);
               }
             }
           }
@@ -214,12 +260,13 @@ export async function POST(req: Request) {
           const currentRank = statusHierarchy[existingMsg.status] ?? 0;
           const newRank = statusHierarchy[newStatus] ?? 0;
 
-          // Enforce forward status progression (never downgrade e.g. READ back to DELIVERED)
+          // Forcefully update tick status (enforcing forward progression: never downgrade e.g. READ back to DELIVERED)
           if (newRank >= currentRank) {
             await prisma.message.update({
               where: { id: existingMsg.id },
               data: {
                 status: newStatus,
+                twilioSid: rawSid || existingMsg.twilioSid,
                 deliveredAt:
                   (newStatus === "DELIVERED" || newStatus === "READ" || newStatus === "PLAYED")
                     ? (existingMsg.deliveredAt ?? new Date())
@@ -230,7 +277,7 @@ export async function POST(req: Request) {
                     : undefined,
               },
             });
-            console.log(`[Evolution Webhook] Updated message ${existingMsg.id} (${rawSid || "matched"}) to ${newStatus} (ack: ${ackNum})`);
+            console.log(`[Evolution Webhook] Forcefully updated message ${existingMsg.id} (${rawSid || "loose-match"}) to ${newStatus} (ack: ${ackNum})`);
           }
         } else if (sidCandidates.length > 0) {
           // Fallback updateMany if messageSid matched

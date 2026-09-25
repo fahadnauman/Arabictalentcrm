@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ leadId: string }> }
@@ -82,7 +85,9 @@ export async function GET(
 
   return NextResponse.json(messages, {
     headers: {
-      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0, s-maxage=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
     },
   });
 }

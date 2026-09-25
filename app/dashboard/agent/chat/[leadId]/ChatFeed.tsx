@@ -213,8 +213,12 @@ export default function ChatFeed({
 
     async function pollMessages() {
       try {
-        const res = await fetch(`/api/leads/${leadId}/messages`, {
+        const res = await fetch(`/api/leads/${leadId}/messages?_t=${Date.now()}`, {
           cache: "no-store",
+          headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+          },
         });
         if (!res.ok) return;
         const freshMsgs: ChatMessage[] = await res.json();

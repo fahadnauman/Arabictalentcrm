@@ -113,7 +113,7 @@ export default async function AdminDashboard() {
   ];
 
   return (
-    <div className={styles.page}>
+    <div className={`${styles.page} w-full max-w-[100vw] overflow-x-hidden`}>
 
       {/* ── Top navigation bar ─────────────────────────────────────── */}
       <header className={`${styles.topbar} flex flex-row items-center justify-between`}>

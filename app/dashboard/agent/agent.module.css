@@ -391,6 +391,12 @@
   z-index: 50 !important;
   padding: 0 0.5rem;
 }
+
+@media (min-width: 768px) {
+  .bottomNav {
+    display: none !important;
+  }
+}
 .navItem {
   flex: 1;
   display: flex;

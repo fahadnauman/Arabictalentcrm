@@ -107,7 +107,7 @@ export default async function AgentHomePage() {
         </div>
       </header>
 
-      <div className={`${styles.body} w-full max-w-[100vw] overflow-x-hidden px-4 md:px-8`}>
+      <div className={`${styles.body} w-full max-w-[100vw] overflow-x-hidden px-4 md:px-8 pb-20 md:pb-6`}>
 
         {/* ── Top Metrics Header: Stacks on mobile, side-by-side on desktop ── */}
         <div className={`${styles.metricsHeader} flex flex-col md:flex-row md:items-center md:justify-between gap-4 w-full`}>

@@ -93,7 +93,7 @@ export default function AgentBottomNav() {
     <>
       <FollowUpAlertWatcher />
       <GlobalLeadNotificationWatcher />
-      <nav className={`${styles.bottomNav} fixed bottom-0 left-0 w-full z-50`} style={{ position: "fixed", bottom: 0, left: 0, width: "100%", zIndex: 50 }}>
+      <nav className={`${styles.bottomNav} fixed bottom-0 w-full z-50 flex md:hidden`}>
         {tabs.map(({ href, label, Icon }) => {
           const active = path === href;
           return (

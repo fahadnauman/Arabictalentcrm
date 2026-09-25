@@ -77,20 +77,14 @@ export async function POST(req: Request) {
     }
 
     if (isUpdate) {
-      let updates: any[] = [];
-      if (Array.isArray(payload.data)) {
-        updates = payload.data;
-      } else if (Array.isArray(payload.data?.messages)) {
-        updates = payload.data.messages;
-      } else if (Array.isArray(payload.messages)) {
-        updates = payload.messages;
-      } else if (Array.isArray(payload)) {
-        updates = payload;
-      } else if (payload.data && typeof payload.data === "object") {
-        updates = [payload.data];
-      } else if (payload.key || payload.update) {
-        updates = [payload];
-      }
+      // ── Bulletproof extraction: handles array, nested array, or single object ──
+      const updates: any[] = Array.isArray(payload.data)
+        ? payload.data
+        : Array.isArray(payload)
+        ? payload
+        : payload.data
+        ? [payload.data]
+        : [payload];
 
       for (const updateObj of updates) {
         if (!updateObj) continue;
@@ -101,8 +95,8 @@ export async function POST(req: Request) {
           updateObj.messageId ||
           updateObj.keyId;
 
-        // Correctly extract ack integer from payload:
-        // 0 = Pending, 1 = Sent, 2 = Delivered, 3 = Read, 4 = Played
+        // Extract ack from all known Evolution API payload shapes:
+        // update.status (string), update.ack (int), status (string/int), ack (int)
         const rawAck =
           updateObj.update?.status ??
           updateObj.update?.ack ??
@@ -111,6 +105,7 @@ export async function POST(req: Request) {
 
         if (rawAck === undefined || rawAck === null) continue;
 
+        // Map raw ack to integer. Handles both numeric and string formats.
         let ackNum: number | null = null;
         if (typeof rawAck === "number") {
           ackNum = rawAck;
@@ -119,12 +114,13 @@ export async function POST(req: Request) {
           if (!isNaN(parsed)) {
             ackNum = parsed;
           } else {
-            const s = rawAck.toUpperCase();
-            if (s === "PENDING" || s === "CLOCK" || s === "QUEUED") ackNum = 0;
-            else if (s === "SENT" || s === "SERVER_ACK") ackNum = 1;
-            else if (s === "DELIVERED" || s === "DELIVERY_ACK") ackNum = 2;
-            else if (s === "READ" || s === "READ_ACK") ackNum = 3;
-            else if (s === "PLAYED" || s === "PLAYED_ACK") ackNum = 4;
+            // Strict string mapping per Evolution API spec:
+            const s = rawAck.toUpperCase().trim();
+            if (s === "PENDING" || s === "CLOCK" || s === "QUEUED" || s === "ERROR") ackNum = 0;
+            else if (s === "SERVER_ACK" || s === "SENT") ackNum = 1;
+            else if (s === "DELIVERY_ACK" || s === "DELIVERED" || s === "DEVICE_ACK") ackNum = 2;
+            else if (s === "READ" || s === "READ_ACK" || s === "VIEWED") ackNum = 3;
+            else if (s === "PLAYED" || s === "PLAYED_ACK" || s === "AUDIO_PLAYED") ackNum = 4;
           }
         }
 
@@ -145,6 +141,17 @@ export async function POST(req: Request) {
         else if (ackNum >= 4) newStatus = "PLAYED";
 
         if (!newStatus) continue;
+
+        // ── GUARANTEED FIRST-PASS: updateMany by twilioSid (no lookup required) ──
+        // If the ID is known, blast the update directly to all matching messages immediately.
+        const msgId = rawSid;
+        if (msgId) {
+          await prisma.message.updateMany({
+            where: { twilioSid: msgId },
+            data: { status: newStatus },
+          });
+          console.log(`[Evolution Webhook] updateMany twilioSid=${msgId} → ${newStatus} (ack: ${ackNum})`);
+        }
 
         // Extract remoteJid from update payload
         let remoteJid =

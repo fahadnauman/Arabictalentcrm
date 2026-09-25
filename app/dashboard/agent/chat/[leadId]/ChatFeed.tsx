@@ -11,7 +11,9 @@ import {
 import { sendMessage, recordOutboundMedia, SentMessage } from "@/app/actions/message";
 import { getRandomGreeting } from "@/lib/spintax";
 import { updateLeadInfo } from "@/app/actions/lead";
+import { useRouter } from "next/navigation";
 import UpdateFollowUpModal from "./UpdateFollowUpModal";
+import VoiceNotePlayer from "./VoiceNotePlayer";
 import styles from "../../agent.module.css";
 import chatStyles from "./chat.module.css";
 
@@ -146,6 +148,7 @@ export default function ChatFeed({
   initialMsgs,
   activeFollowUpId,
 }: Props) {
+  const router                    = useRouter();
   const [messages, setMessages]   = useState<ChatMessage[]>(initialMsgs);
   const [text, setText]           = useState("");
   const [showMenu, setShowMenu]   = useState(false);
@@ -218,19 +221,19 @@ export default function ChatFeed({
         if (!isMounted) return;
 
         setMessages((prev) => {
-          // If no change (including status updates), return prev to preserve references and avoid rerender
-          if (
-            prev.length === freshMsgs.length &&
-            prev.every(
-              (m, i) =>
-                m.id === freshMsgs[i]?.id &&
-                String(m.status ?? "").toUpperCase() === String(freshMsgs[i]?.status ?? "").toUpperCase() &&
-                !m.pending &&
-                !m.failed &&
-                m.status !== "pending" &&
-                m.status !== "failed"
-            )
-          ) {
+          // Check if any message status or ID or count changed
+          const hasChanges =
+            prev.length !== freshMsgs.length ||
+            prev.some((m, i) => {
+              const fresh = freshMsgs[i];
+              if (!fresh) return true;
+              if (m.id !== fresh.id) return true;
+              const prevStatus = String(m.status ?? "").toUpperCase();
+              const freshStatus = String(fresh.status ?? "").toUpperCase();
+              return prevStatus !== freshStatus;
+            });
+
+          if (!hasChanges) {
             return prev;
           }
 
@@ -249,6 +252,9 @@ export default function ChatFeed({
             ...stillPending,
           ];
         });
+
+        // Trigger router refresh to sync server components in background
+        router.refresh();
       } catch (err) {
         // Silently ignore transient network polling errors
       }
@@ -259,7 +265,7 @@ export default function ChatFeed({
       isMounted = false;
       clearInterval(intervalId);
     };
-  }, [leadId]);
+  }, [leadId, router]);
 
   // Trigger 1: Synchronize 'Mark as Read' with host device whenever the chat window is opened
   useEffect(() => {
@@ -486,14 +492,14 @@ export default function ChatFeed({
         const base = filename.replace(/\.[^/.]+$/, "");
         finalFileName = `${base || "video"}.mp4`;
       } else if (isAudio) {
-        let ext = "ogg";
-        if (rawMime.includes("webm")) ext = "webm";
-        else if (rawMime.includes("mp4") || rawMime.includes("m4a")) ext = "m4a";
-        else if (rawMime.includes("wav")) ext = "wav";
-        else if (rawMime.includes("mp3") || rawMime.includes("mpeg")) ext = "mp3";
+        const isVoice =
+          filename === "Voice Note" ||
+          filename.startsWith("voice_note.") ||
+          rawMime.includes("ogg") ||
+          rawMime.includes("webm") ||
+          rawMime.includes("opus");
 
-        const isVoice = filename === "Voice Note" || filename.startsWith("voice_note.");
-        finalFileName = isVoice ? `voice_note.${ext}` : (filename.includes(".") ? filename : `${filename}.${ext}`);
+        finalFileName = isVoice ? "voice_note.ogg" : (filename.includes(".") ? filename : `${filename}.ogg`);
       } else {
         finalFileName = filename;
       }
@@ -731,17 +737,12 @@ export default function ChatFeed({
         }
 
         const actualMime = recorder.mimeType || preferredMime || "audio/ogg; codecs=opus";
-        const blob = new Blob(audioChunksRef.current, { type: actualMime });
+        const blob = new Blob(audioChunksRef.current, { type: "audio/ogg" });
         audioChunksRef.current = [];
 
-        let ext = "ogg";
-        if (actualMime.includes("ogg") || actualMime.includes("opus")) ext = "ogg";
-        else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
-        else if (actualMime.includes("wav")) ext = "wav";
-        else if (actualMime.includes("webm")) ext = "webm";
-
-        const filename = `voice_note.${ext}`;
-        processUpload(blob, filename, actualMime);
+        // Strictly rename to voice_note.ogg for WhatsApp PTT transcoding
+        const filename = "voice_note.ogg";
+        processUpload(blob, filename, "audio/ogg");
       };
 
       recorder.start(100);
@@ -1013,19 +1014,7 @@ export default function ChatFeed({
                             />
                           ) : isAud ? (
                             <div style={{ padding: "0.15rem 0", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                              <audio
-                                key={mediaSrc}
-                                controls
-                                preload="metadata"
-                                src={mediaSrc}
-                                style={{
-                                  width: "100%",
-                                  minWidth: "220px",
-                                  maxWidth: "280px",
-                                  height: "38px",
-                                  borderRadius: "20px",
-                                }}
-                              />
+                              <VoiceNotePlayer src={mediaSrc} isOutbound={isOut} />
                             </div>
                           ) : (
                             <a

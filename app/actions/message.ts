@@ -23,6 +23,25 @@ export type SendMessageResult =
   | { success: true; data: SentMessage }
   | { success: false; status: number; error: string; rawResponse?: string };
 
+function extractWhatsAppMessageId(data: any): string | null {
+  if (!data) return null;
+  const target = Array.isArray(data) ? data[0] : data;
+  if (!target) return null;
+
+  const candidate =
+    target.key?.id ||
+    target.message?.key?.id ||
+    target.response?.key?.id ||
+    target.response?.message?.key?.id ||
+    target.data?.key?.id ||
+    target.data?.message?.key?.id ||
+    target.data?.id ||
+    target.id ||
+    target.messageId;
+
+  return typeof candidate === "string" && candidate.trim() ? candidate.trim() : null;
+}
+
 /**
  * Synchronizes read state with Evolution API and marks inbound messages as read in the database.
  * Condition 1: When an agent clicks a lead's card in the Inbox to open the chat window.
@@ -241,9 +260,15 @@ export async function sendMessage(
       else if (mType.includes("spreadsheet")) ext = "xlsx";
       else if (mType.includes("word")) ext = "docx";
 
-      const isVoiceNote = isAudio && (body.trim() === "Voice Note" || body.trim().startsWith("voice_note."));
+      const isVoiceNote = isAudio && (
+        body.trim() === "Voice Note" ||
+        body.trim().startsWith("voice_note.") ||
+        mType.includes("ogg") ||
+        mType.includes("webm") ||
+        mType.includes("opus")
+      );
       const fileName = isVoiceNote
-        ? (body.trim().includes(".") ? body.trim() : `voice_note.${ext}`)
+        ? "voice_note.ogg"
         : `attachment_${Date.now()}.${ext}`;
 
       if (isAudio) {
@@ -266,12 +291,16 @@ export async function sendMessage(
         }
 
         // WhatsApp Audio / Voice Note (PTT)
-        // Clean and buffer the audio payload into a pure Base64 string
-        const cleanBase64 = base64Data.trim().replace(/[\r\n\s]/g, "");
-        const audioBuffer = Buffer.from(cleanBase64, "base64");
-        const formattedBase64 = audioBuffer.toString("base64");
+        // Strip data:audio/...;base64, prefix if present, and send raw base64 string
+        let rawBase64 = base64Data.trim();
+        if (rawBase64.includes(";base64,")) {
+          rawBase64 = rawBase64.split(";base64,")[1];
+        } else if (rawBase64.startsWith("data:")) {
+          rawBase64 = rawBase64.substring(rawBase64.indexOf(",") + 1);
+        }
+        rawBase64 = rawBase64.replace(/[\r\n\s]/g, "");
 
-        // Send via Evolution API's sendWhatsAppAudio endpoint with explicit PTT flags & native recording options
+        // Send via Evolution API's sendWhatsAppAudio endpoint strictly as audio/ogg PTT
         const res = await fetch(`${EVO_URL}/message/sendWhatsAppAudio/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
@@ -280,17 +309,9 @@ export async function sendMessage(
           },
           body: JSON.stringify({
             number: toPhone,
-            audio: formattedBase64,
-            mimetype: "audio/mp4",
+            audio: rawBase64,
+            mimetype: "audio/ogg",
             ptt: true,
-            voice: true,
-            delay: 1500,
-            encoding: true,
-            options: {
-              presence: "recording",
-              delay: 1500,
-              encoding: true
-            }
           })
         });
 
@@ -307,11 +328,12 @@ export async function sendMessage(
         }
 
         const evoData = await res.json().catch(() => null);
-        if (evoData?.key?.id) {
+        const exactId = extractWhatsAppMessageId(evoData);
+        if (exactId) {
           await prisma.message.update({
             where: { id: msg.id },
-            data: { twilioSid: evoData.key.id }
-          }).catch(() => {});
+            data: { twilioSid: exactId }
+          }).catch((err) => console.error("Failed to update message twilioSid:", err));
         }
       } else {
         const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
@@ -347,11 +369,12 @@ export async function sendMessage(
         }
 
         const evoData = await res.json().catch(() => null);
-        if (evoData?.key?.id) {
+        const exactId = extractWhatsAppMessageId(evoData);
+        if (exactId) {
           await prisma.message.update({
             where: { id: msg.id },
-            data: { twilioSid: evoData.key.id }
-          }).catch(() => {});
+            data: { twilioSid: exactId }
+          }).catch((err) => console.error("Failed to update message twilioSid:", err));
         }
       }
     } else {
@@ -412,11 +435,12 @@ export async function sendMessage(
       }
 
       const evoData = await res.json().catch(() => null);
-      if (evoData?.key?.id) {
+      const exactId = extractWhatsAppMessageId(evoData);
+      if (exactId) {
         await prisma.message.update({
           where: { id: msg.id },
-          data: { twilioSid: evoData.key.id }
-        }).catch(() => {});
+          data: { twilioSid: exactId }
+        }).catch((err) => console.error("Failed to update message twilioSid:", err));
       }
     }
   } catch (err: unknown) {

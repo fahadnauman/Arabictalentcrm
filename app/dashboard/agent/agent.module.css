@@ -28,11 +28,14 @@
     var(--bg);
   font-family: 'Inter', system-ui, sans-serif;
   color: var(--text);
-  /* Mobile viewport: cap width and center */
+  /* Mobile viewport: cap width and center on all screen sizes */
+  width: 100%;
   max-width: 480px;
   margin: 0 auto;
   position: relative;
   overflow-x: hidden;
+  overflow-y: visible;
+  box-sizing: border-box;
 }
 
 /* ── Scrollable body (above bottom nav) ──────────────────────────────────── */
@@ -388,7 +391,27 @@
 .navItem.activeNav { color: var(--neon); }
 .navItem.activeNav svg path, .navItem.activeNav svg circle,
 .navItem.activeNav svg polyline, .navItem.activeNav svg rect { stroke: var(--neon); }
-.navIcon { width: 20px; height: 20px; }
+.navIcon {
+  width: 20px !important;
+  height: 20px !important;
+  min-width: 20px !important;
+  min-height: 20px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  flex-shrink: 0 !important;
+  display: block !important;
+}
+
+/* Nuclear failsafe: cap ALL svgs inside the bottom nav bar */
+.bottomNav svg {
+  width: 24px !important;
+  height: 24px !important;
+  min-width: 24px !important;
+  min-height: 24px !important;
+  max-width: 24px !important;
+  max-height: 24px !important;
+  flex-shrink: 0 !important;
+}
 
 /* ── Utility ─────────────────────────────────────────────────────────────── */
 .pa { padding: 0 1.25rem; }

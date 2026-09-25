@@ -59,7 +59,18 @@ export default async function AgentInboxPage() {
   const pending = (stats.breakdown["THINKING"] ?? 0) + (stats.breakdown["NEW_LEAD"] ?? 0);
 
   return (
-    <div className={styles.shell}>
+    <div
+      className={styles.shell}
+      style={{
+        width: "100%",
+        maxWidth: "480px",
+        margin: "0 auto",
+        minHeight: "100vh",
+        overflowX: "hidden",
+        boxSizing: "border-box",
+        position: "relative",
+      }}
+    >
       <DailyBriefingModal
         agentId={user.id}
         agentName={user.name}

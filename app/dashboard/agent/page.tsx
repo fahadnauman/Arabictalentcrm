@@ -63,7 +63,18 @@ export default async function AgentHomePage() {
     : 0;
 
   return (
-    <div className={styles.shell}>
+    <div
+      className={styles.shell}
+      style={{
+        width: "100%",
+        maxWidth: "480px",
+        margin: "0 auto",
+        minHeight: "100vh",
+        overflowX: "hidden",
+        boxSizing: "border-box",
+        position: "relative",
+      }}
+    >
       <DailyBriefingModal
         agentId={user.id}
         agentName={user.name}
@@ -76,7 +87,17 @@ export default async function AgentHomePage() {
         <div className={styles.topbarLogo}>
           <img src="/logo.png" alt="Arabic Talent" style={{ height: 32, width: "auto", objectFit: "contain" }} />
         </div>
-        <div className={styles.topbarRight} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <div
+          className={styles.topbarRight}
+          style={{
+            display: "flex",
+            gap: "0.4rem",
+            alignItems: "center",
+            overflow: "hidden",
+            minWidth: 0,
+            flexShrink: 1,
+          }}
+        >
           <AttendanceControls
             initialAttendance={
               todayAttendance
@@ -89,14 +110,22 @@ export default async function AgentHomePage() {
                 : null
             }
           />
-          <span className={styles.agentBadge}>◈ {user.name}</span>
-          <form action="/api/auth/logout" method="POST">
+          <span
+            className={styles.agentBadge}
+            style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100px" }}
+          >
+            ◈ {user.name}
+          </span>
+          <form action="/api/auth/logout" method="POST" style={{ flexShrink: 0 }}>
             <button type="submit" className={styles.logoutBtn}>Out</button>
           </form>
         </div>
       </header>
 
-      <div className={styles.body}>
+      <div
+        className={styles.body}
+        style={{ paddingBottom: "calc(64px + 1rem)", boxSizing: "border-box", width: "100%" }}
+      >
 
         {/* ── Revenue hero with distinct Partial Payments tracking ── */}
         <div className={styles.heroBlock} style={{ position: "relative", overflow: "hidden" }}>

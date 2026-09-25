@@ -111,7 +111,7 @@ export default function AttendanceControls({ initialAttendance }: AttendanceCont
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+    <div className="flex flex-col gap-1" style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
       {error && (
         <div
           style={{
@@ -126,7 +126,7 @@ export default function AttendanceControls({ initialAttendance }: AttendanceCont
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+      <div className="flex flex-row items-center gap-2" style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
         {status === "CLOCKED_OUT" ? (
           <button
             type="button"

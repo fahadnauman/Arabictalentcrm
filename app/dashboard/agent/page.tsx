@@ -72,11 +72,11 @@ export default async function AgentHomePage() {
       />
 
       {/* ── Top bar ───────────────────────────────────────────────── */}
-      <header className={styles.topbar}>
-        <div className={styles.topbarLogo}>
+      <header className={`${styles.topbar} flex flex-row items-center justify-between`}>
+        <div className={`${styles.topbarLogo} flex items-center gap-2`}>
           <img src="/logo.png" alt="Arabic Talent" style={{ height: 32, width: "auto", objectFit: "contain" }} />
         </div>
-        <div className={styles.topbarRight} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+        <div className={`${styles.topbarRight} flex flex-row items-center gap-2`} style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
           <AttendanceControls
             initialAttendance={
               todayAttendance
@@ -89,30 +89,30 @@ export default async function AgentHomePage() {
                 : null
             }
           />
-          <span className={styles.agentBadge}>◈ {user.name}</span>
-          <form action="/api/auth/logout" method="POST">
+          <span className={`${styles.agentBadge} inline-flex items-center`}>◈ {user.name}</span>
+          <form action="/api/auth/logout" method="POST" className="flex items-center">
             <button type="submit" className={styles.logoutBtn}>Out</button>
           </form>
         </div>
       </header>
 
-      <div className={styles.body}>
+      <div className={`${styles.body} w-full`}>
 
         {/* ── Revenue hero with distinct Partial Payments tracking ── */}
-        <div className={styles.heroBlock} style={{ position: "relative", overflow: "hidden" }}>
-          <div className={styles.heroLabel}>Total Revenue Collected</div>
-          <div className={styles.heroAmount}>
+        <div className={`${styles.heroBlock} flex flex-col items-center justify-center relative overflow-hidden`} style={{ position: "relative", overflow: "hidden" }}>
+          <div className={`${styles.heroLabel} flex flex-row items-center justify-center gap-2 w-full`}>Total Revenue Collected</div>
+          <div className={`${styles.heroAmount} flex flex-row items-center justify-center`}>
             <span className={styles.heroCurrency}>AED</span>
             {formatAED(stats.revenueTracking.totalCashCollectedAED)}
           </div>
-          <div className={styles.heroSub} style={{ display: "flex", gap: "0.8rem", justifyContent: "center", flexWrap: "wrap", marginTop: "0.4rem" }}>
+          <div className={`${styles.heroSub} flex flex-row items-center justify-center flex-wrap gap-3`} style={{ display: "flex", gap: "0.8rem", justifyContent: "center", flexWrap: "wrap", marginTop: "0.4rem" }}>
             <span>Full: <strong style={{ color: "#20C997" }}>AED {formatAED(stats.revenueTracking.fullRevenueAED)}</strong> ({stats.revenueTracking.fullDealsCount})</span>
             <span>·</span>
             <span>Partial: <strong style={{ color: "#fbbf24" }}>AED {formatAED(stats.revenueTracking.partialCollectedAED)}</strong> ({stats.revenueTracking.partialDealsCount})</span>
           </div>
 
           {stats.revenueTracking.partialBalanceDueAED > 0 && (
-            <div style={{
+            <div className="inline-flex items-center gap-2" style={{
               marginTop: "0.75rem",
               background: "rgba(245, 158, 11, 0.12)",
               border: "1px solid rgba(245, 158, 11, 0.3)",
@@ -130,12 +130,12 @@ export default async function AgentHomePage() {
           )}
 
           {stats.revenueTracking.totalCashCollectedAED > 0 && (
-            <div className={styles.heroBadge}>▲ Revenue is live</div>
+            <div className={`${styles.heroBadge} inline-flex items-center gap-1`}>▲ Revenue is live</div>
           )}
         </div>
 
         {/* ── Quick Stats: Total Leads, Follow-Up Leads, New Leads, Win Rate ── */}
-        <div style={{
+        <div className="grid grid-cols-2 gap-4 w-full" style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
           gap: "0.75rem",
@@ -154,7 +154,7 @@ export default async function AgentHomePage() {
           <LiveNewLeadsStatCard initialCount={stats.newLeadsCount} />
 
           {/* Win Rate */}
-          <div className={styles.statCard} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+          <div className={`${styles.statCard} flex flex-col justify-between`} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
             <div>
               <div className={`${styles.statVal} ${styles.blueVal}`}>{winRate}%</div>
               <div className={styles.statLbl}>Win Rate</div>

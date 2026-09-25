@@ -61,26 +61,74 @@ export async function markChatAsRead(leadId: string): Promise<{ success: boolean
     const cleanPhone = lead.phone.replace(/\D/g, "");
     const remoteJid = `${cleanPhone}@s.whatsapp.net`;
 
-    // Find any unread inbound messages for this lead
+    // 1. Query Prisma for all unread inbound messages for that lead (direction: "INBOUND", status: "RECEIVED" or ack: 0)
     const unreadMsgs = await prisma.message.findMany({
       where: {
         leadId: lead.id,
         direction: "INBOUND",
-        status: { notIn: ["READ", "PLAYED"] },
+        status: { in: ["RECEIVED", "QUEUED", "DELIVERED", "SENT"] },
+        twilioSid: { not: null },
       },
       select: { id: true, twilioSid: true },
       orderBy: { sentAt: "desc" },
-      take: 50,
+      take: 100,
     });
 
-    // Also find latest inbound message if none are marked unread
-    const latestInbound = await prisma.message.findFirst({
-      where: { leadId: lead.id, direction: "INBOUND" },
-      select: { id: true, twilioSid: true },
-      orderBy: { sentAt: "desc" },
+    let targets = unreadMsgs.filter((m) => m.twilioSid);
+
+    // If no unread messages in Prisma (e.g. they were previously set to READ in DB, but the WhatsApp green badge is still active),
+    // grab the latest inbound messages to force clear the green badge on the host device
+    if (targets.length === 0) {
+      const recentInbound = await prisma.message.findMany({
+        where: {
+          leadId: lead.id,
+          direction: "INBOUND",
+          twilioSid: { not: null },
+        },
+        select: { id: true, twilioSid: true },
+        orderBy: { sentAt: "desc" },
+        take: 10,
+      });
+      targets = recentInbound.filter((m) => m.twilioSid);
+    }
+
+    // 2. Construct exact payload format for Evolution API (POST /chat/markMessageAsRead/${instance})
+    const readMessages = targets.map((m) => {
+      const sid = m.twilioSid!;
+      const cleanId = (sid.includes("_") && sid.includes("@")) ? sid.split("_").pop()! : sid;
+      return {
+        remoteJid,
+        id: cleanId,
+        fromMe: false,
+      };
     });
 
-    // 1. Update all unread inbound messages in CRM database to READ
+    // 3. Execute the API call for those specific unread messages
+    if (readMessages.length > 0) {
+      try {
+        const evoRes = await fetch(`${EVO_URL}/chat/markMessageAsRead/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: EVO_KEY,
+          },
+          body: JSON.stringify({
+            readMessages,
+          }),
+        });
+
+        if (!evoRes.ok) {
+          const errText = await evoRes.text().catch(() => "");
+          console.warn(`[Read Sync] Evolution API markMessageAsRead HTTP ${evoRes.status}:`, errText);
+        } else {
+          console.log(`[Read Sync] Cleared green badge - marked ${readMessages.length} messages read for ${remoteJid}`);
+        }
+      } catch (evoErr) {
+        console.warn("[Read Sync] Evolution API markMessageAsRead error:", evoErr);
+      }
+    }
+
+    // 4. Then update them in Prisma as READ
     if (unreadMsgs.length > 0) {
       await prisma.message.updateMany({
         where: { id: { in: unreadMsgs.map((m) => m.id) } },
@@ -91,60 +139,7 @@ export async function markChatAsRead(leadId: string): Promise<{ success: boolean
       });
     }
 
-    // 2. Build readMessages payload for Evolution API
-    const readMessages = unreadMsgs
-      .filter((m) => m.twilioSid)
-      .map((m) => ({
-        remoteJid,
-        fromMe: false,
-        id: m.twilioSid!,
-      }));
-
-    if (readMessages.length === 0 && latestInbound?.twilioSid) {
-      readMessages.push({
-        remoteJid,
-        fromMe: false,
-        id: latestInbound.twilioSid,
-      });
-    }
-
-    // 3. Fire Evolution API /chat/markAsRead/{instance} to sync physical phone host device
-    try {
-      const markRes = await fetch(`${EVO_URL}/chat/markAsRead/${EVO_INSTANCE}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: EVO_KEY,
-        },
-        body: JSON.stringify({
-          number: cleanPhone,
-          remoteJid,
-          readMessages,
-        }),
-      });
-
-      // If markAsRead endpoint returns 404 on Baileys/v2, fall back to /chat/markMessageAsRead
-      if (markRes.status === 404) {
-        await fetch(`${EVO_URL}/chat/markMessageAsRead/${EVO_INSTANCE}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            apikey: EVO_KEY,
-          },
-          body: JSON.stringify({
-            readMessages:
-              readMessages.length > 0
-                ? readMessages
-                : [{ remoteJid, fromMe: false, id: latestInbound?.twilioSid || "true" }],
-          }),
-        }).catch((err) => console.warn("Evolution API markMessageAsRead fallback error:", err));
-      }
-      console.log(`[Read Sync] Marked chat as read for ${cleanPhone} (messages synced: ${readMessages.length})`);
-    } catch (evoErr) {
-      console.warn("[Read Sync] Evolution API markAsRead error:", evoErr);
-    }
-
-    return { success: true, count: unreadMsgs.length };
+    return { success: true, count: readMessages.length };
   } catch (err: any) {
     console.error("markChatAsRead exception:", err);
     return { success: false, error: err?.message || String(err) };

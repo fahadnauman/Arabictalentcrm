@@ -88,7 +88,7 @@ const VPS_DIRECT_UPLOAD_URL =
   process.env.NEXT_PUBLIC_VPS_DIRECT_UPLOAD_URL ||
   "https://143.198.182.24.sslip.io/direct-upload";
 
-function SingleTickIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+function SingleTickIcon({ color = "#8696a0", className, style }: { color?: string; className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       width="15"
@@ -101,7 +101,7 @@ function SingleTickIcon({ className, style }: { className?: string; style?: Reac
     >
       <path
         d="M11.07 1.25L4.85 7.47L2.18 4.8"
-        stroke="currentColor"
+        stroke={color}
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -110,7 +110,7 @@ function SingleTickIcon({ className, style }: { className?: string; style?: Reac
   );
 }
 
-function DoubleTickIcon({ className, style }: { className?: string; style?: React.CSSProperties }) {
+function DoubleTickIcon({ color = "#8696a0", className, style }: { color?: string; className?: string; style?: React.CSSProperties }) {
   return (
     <svg
       width="16"
@@ -123,14 +123,14 @@ function DoubleTickIcon({ className, style }: { className?: string; style?: Reac
     >
       <path
         d="M9.82 1.25L3.6 7.47L0.93 4.8"
-        stroke="currentColor"
+        stroke={color}
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
       />
       <path
         d="M14.07 1.25L7.85 7.47L6.4 6.02"
-        stroke="currentColor"
+        stroke={color}
         strokeWidth="1.6"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -207,9 +207,10 @@ export default function ChatFeed({
     });
   }, [initialMsgs]);
 
-  // Auto-polling: fetch fresh messages every 3 seconds
+  // Auto-polling: fetch fresh messages every 3 seconds (refreshInterval: 3000)
   useEffect(() => {
     let isMounted = true;
+    const refreshInterval = 3000;
 
     async function pollMessages() {
       try {
@@ -225,34 +226,36 @@ export default function ChatFeed({
         if (!isMounted) return;
 
         setMessages((prev) => {
-          // Check if any message status or ID or count changed
-          const hasChanges =
-            prev.length !== freshMsgs.length ||
-            prev.some((m, i) => {
-              const fresh = freshMsgs[i];
-              if (!fresh) return true;
-              if (m.id !== fresh.id) return true;
-              const prevStatus = String(m.status ?? "").toUpperCase();
-              const freshStatus = String(fresh.status ?? "").toUpperCase();
-              return prevStatus !== freshStatus;
-            });
+          const prevMap = new Map(prev.map((m) => [m.id, m]));
+          let hasChanges = prev.length !== freshMsgs.length;
+
+          if (!hasChanges) {
+            for (const fresh of freshMsgs) {
+              const old = prevMap.get(fresh.id);
+              if (!old) {
+                hasChanges = true;
+                break;
+              }
+              const prevStatus = String(old.status ?? "").trim().toUpperCase();
+              const freshStatus = String(fresh.status ?? "").trim().toUpperCase();
+              if (prevStatus !== freshStatus) {
+                hasChanges = true;
+                break;
+              }
+            }
+          }
 
           if (!hasChanges) {
             return prev;
           }
 
-          const pendingMsgs = prev.filter(
-            (m) => m.pending || m.failed || m.status === "pending" || m.status === "failed"
-          );
-          if (pendingMsgs.length === 0) {
-            return freshMsgs.map((m) => ({ ...m, status: m.status || "SENT" }));
-          }
-
-          // If there are pending optimistic messages, preserve them at the end
           const freshIds = new Set(freshMsgs.map((m) => m.id));
-          const stillPending = pendingMsgs.filter((m) => !freshIds.has(m.id));
+          const stillPending = prev.filter(
+            (m) => (m.pending || m.failed || m.status === "pending" || m.status === "failed") && !freshIds.has(m.id)
+          );
+
           return [
-            ...freshMsgs.map((m) => ({ ...m, status: m.status || "SENT" })),
+            ...freshMsgs.map((m) => ({ ...m, status: (m.status || "SENT").toUpperCase() })),
             ...stillPending,
           ];
         });
@@ -264,7 +267,7 @@ export default function ChatFeed({
       }
     }
 
-    const intervalId = setInterval(pollMessages, 3000);
+    const intervalId = setInterval(pollMessages, refreshInterval);
     return () => {
       isMounted = false;
       clearInterval(intervalId);
@@ -924,9 +927,13 @@ export default function ChatFeed({
           const isOut = msg.direction === "OUTBOUND";
           const isPendingMsg = msg.status === "pending" || msg.pending;
           const isFailedMsg = msg.status === "failed" || msg.failed;
+          const statusKey = String(msg.status ?? "").trim().toUpperCase();
 
           return (
-            <div key={msg.id} className={`${chatStyles.bubbleWrap} ${isOut ? chatStyles.bubbleWrapOut : chatStyles.bubbleWrapIn}`}>
+            <div
+              key={`${msg.id}-${statusKey}`}
+              className={`${chatStyles.bubbleWrap} ${isOut ? chatStyles.bubbleWrapOut : chatStyles.bubbleWrapIn}`}
+            >
               
               {!isOut && (
                 <div className={chatStyles.inAvatar}>●</div>
@@ -1108,36 +1115,43 @@ export default function ChatFeed({
                         // Ack 2 = Delivered (Double Grey)
                         const isDelivered = raw === "2" || raw === "DELIVERED";
 
+                        // Absolute fallback 1: If message.status === "READ" (or ack === 3), render double blue tick
                         if (isRead) {
                           return (
                             <span
+                              key={`read-${msg.id}-${raw}`}
                               className={chatStyles.statusRead}
                               style={{ color: "#53bdeb", display: "inline-flex", alignItems: "center" }}
                               title={isPlayed ? "Played" : "Read"}
                             >
-                              <DoubleTickIcon />
+                              <DoubleTickIcon color="#53bdeb" />
                             </span>
                           );
                         }
+
+                        // Absolute fallback 2: If message.status === "DELIVERED" (or ack === 2), render double grey tick
                         if (isDelivered) {
                           return (
                             <span
+                              key={`deliv-${msg.id}-${raw}`}
                               className={chatStyles.statusDelivered}
-                              style={{ color: "rgba(255, 255, 255, 0.45)", display: "inline-flex", alignItems: "center" }}
+                              style={{ color: "#8696a0", display: "inline-flex", alignItems: "center" }}
                               title="Delivered"
                             >
-                              <DoubleTickIcon />
+                              <DoubleTickIcon color="#8696a0" />
                             </span>
                           );
                         }
-                        // Ack 1 = Sent (Single Grey) or default
+
+                        // Default / Ack 1: Single grey tick (Sent)
                         return (
                           <span
+                            key={`sent-${msg.id}-${raw}`}
                             className={chatStyles.statusSent}
-                            style={{ color: "rgba(255, 255, 255, 0.45)", display: "inline-flex", alignItems: "center" }}
+                            style={{ color: "#8696a0", display: "inline-flex", alignItems: "center" }}
                             title="Sent"
                           >
-                            <SingleTickIcon />
+                            <SingleTickIcon color="#8696a0" />
                           </span>
                         );
                       })()}

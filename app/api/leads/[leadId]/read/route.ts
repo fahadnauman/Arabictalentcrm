@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
 import { markChatAsRead } from "@/app/actions/message";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ leadId: string }> }

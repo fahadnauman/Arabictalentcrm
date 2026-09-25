@@ -134,9 +134,21 @@
 .statusSent {
   display: inline-flex;
   align-items: center;
-  color: #20C997;
+  color: #8696a0;
   font-weight: 700;
   font-size: 0.72rem;
+}
+
+.statusDelivered {
+  display: inline-flex;
+  align-items: center;
+  color: #8696a0;
+}
+
+.statusRead {
+  display: inline-flex;
+  align-items: center;
+  color: #53bdeb;
 }
 
 .statusFailed {

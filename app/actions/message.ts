@@ -23,6 +23,115 @@ export type SendMessageResult =
   | { success: true; data: SentMessage }
   | { success: false; status: number; error: string; rawResponse?: string };
 
+/**
+ * Synchronizes read state with Evolution API and marks inbound messages as read in the database.
+ * Condition 1: When an agent clicks a lead's card in the Inbox to open the chat window.
+ * Condition 2: Instantly right before an agent sends an outbound reply from the CRM.
+ */
+export async function markChatAsRead(leadId: string): Promise<{ success: boolean; error?: string; count?: number }> {
+  try {
+    const lead = await prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, phone: true },
+    });
+
+    if (!lead || !lead.phone) {
+      return { success: false, error: "Lead or phone not found" };
+    }
+
+    const cleanPhone = lead.phone.replace(/\D/g, "");
+    const remoteJid = `${cleanPhone}@s.whatsapp.net`;
+
+    // Find any unread inbound messages for this lead
+    const unreadMsgs = await prisma.message.findMany({
+      where: {
+        leadId: lead.id,
+        direction: "INBOUND",
+        status: { notIn: ["READ", "PLAYED"] },
+      },
+      select: { id: true, twilioSid: true },
+      orderBy: { sentAt: "desc" },
+      take: 50,
+    });
+
+    // Also find latest inbound message if none are marked unread
+    const latestInbound = await prisma.message.findFirst({
+      where: { leadId: lead.id, direction: "INBOUND" },
+      select: { id: true, twilioSid: true },
+      orderBy: { sentAt: "desc" },
+    });
+
+    // 1. Update all unread inbound messages in CRM database to READ
+    if (unreadMsgs.length > 0) {
+      await prisma.message.updateMany({
+        where: { id: { in: unreadMsgs.map((m) => m.id) } },
+        data: {
+          status: "READ",
+          readAt: new Date(),
+        },
+      });
+    }
+
+    // 2. Build readMessages payload for Evolution API
+    const readMessages = unreadMsgs
+      .filter((m) => m.twilioSid)
+      .map((m) => ({
+        remoteJid,
+        fromMe: false,
+        id: m.twilioSid!,
+      }));
+
+    if (readMessages.length === 0 && latestInbound?.twilioSid) {
+      readMessages.push({
+        remoteJid,
+        fromMe: false,
+        id: latestInbound.twilioSid,
+      });
+    }
+
+    // 3. Fire Evolution API /chat/markAsRead/{instance} to sync physical phone host device
+    try {
+      const markRes = await fetch(`${EVO_URL}/chat/markAsRead/${EVO_INSTANCE}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: EVO_KEY,
+        },
+        body: JSON.stringify({
+          number: cleanPhone,
+          remoteJid,
+          readMessages,
+        }),
+      });
+
+      // If markAsRead endpoint returns 404 on Baileys/v2, fall back to /chat/markMessageAsRead
+      if (markRes.status === 404) {
+        await fetch(`${EVO_URL}/chat/markMessageAsRead/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: EVO_KEY,
+          },
+          body: JSON.stringify({
+            readMessages:
+              readMessages.length > 0
+                ? readMessages
+                : [{ remoteJid, fromMe: false, id: latestInbound?.twilioSid || "true" }],
+          }),
+        }).catch((err) => console.warn("Evolution API markMessageAsRead fallback error:", err));
+      }
+      console.log(`[Read Sync] Marked chat as read for ${cleanPhone} (messages synced: ${readMessages.length})`);
+    } catch (evoErr) {
+      console.warn("[Read Sync] Evolution API markAsRead error:", evoErr);
+    }
+
+    return { success: true, count: unreadMsgs.length };
+  } catch (err: any) {
+    console.error("markChatAsRead exception:", err);
+    return { success: false, error: err?.message || String(err) };
+  }
+}
+
 /** Saves an outbound message to the database and sends it via Evolution API. */
 export async function sendMessage(
   leadId: string,
@@ -54,6 +163,9 @@ export async function sendMessage(
   if (user.role === "AGENT" && lead.assignedAgentId !== user.id) {
     return { success: false, status: 403, error: "Access denied: Not your lead", rawResponse: "Forbidden: Lead assigned to another agent" };
   }
+
+  // Trigger 2: Instantly sync mark as read right before sending an outbound reply
+  await markChatAsRead(leadId).catch((err) => console.warn("Auto markChatAsRead error in sendMessage:", err));
 
   // We generate a temp ID for the URL if needed, but since we create it first, we'll update it after if we have media.
   let payload: any = null;
@@ -141,8 +253,7 @@ export async function sendMessage(
         const audioBuffer = Buffer.from(cleanBase64, "base64");
         const formattedBase64 = audioBuffer.toString("base64");
 
-        // Send via Evolution API's sendWhatsAppAudio endpoint with encoding: true
-        // This triggers Evolution API's ffmpeg to transcode into WhatsApp's native PTT Opus format (audio/ogg; codecs=opus)
+        // Send via Evolution API's sendWhatsAppAudio endpoint with explicit PTT flags & native recording options
         const res = await fetch(`${EVO_URL}/message/sendWhatsAppAudio/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
@@ -152,8 +263,15 @@ export async function sendMessage(
           body: JSON.stringify({
             number: toPhone,
             audio: formattedBase64,
-            delay: 1200,
-            encoding: true
+            ptt: true,
+            voice: true,
+            delay: 1500,
+            encoding: true,
+            options: {
+              presence: "recording",
+              delay: 1500,
+              encoding: true
+            }
           })
         });
 
@@ -218,7 +336,30 @@ export async function sendMessage(
         }
       }
     } else {
-      // Send Text
+      // 1. Anti-Ban Human Simulation: Fire presence: "composing" to show "typing..." on recipient's phone
+      try {
+        await fetch(`${EVO_URL}/chat/sendPresence/${EVO_INSTANCE}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: EVO_KEY,
+          },
+          body: JSON.stringify({
+            number: toPhone,
+            presence: "composing",
+            delay: 1200,
+          }),
+        });
+      } catch (presenceErr) {
+        console.warn("Evolution API sendPresence failed:", presenceErr);
+      }
+
+      // 2. Anti-Ban Human Simulation: Randomized artificial human delay between 4s and 12s
+      const humanDelayMs = Math.floor(Math.random() * (12000 - 4000 + 1) + 4000);
+      console.log(`[Anti-Ban] Simulating human typing delay of ${humanDelayMs}ms before dispatching message to ${toPhone}`);
+      await new Promise((resolve) => setTimeout(resolve, humanDelayMs));
+
+      // 3. Dispatch outbound text message
       const res = await fetch(`${EVO_URL}/message/sendText/${EVO_INSTANCE}`, {
         method: "POST",
         headers: {
@@ -228,7 +369,7 @@ export async function sendMessage(
         body: JSON.stringify({
           number: toPhone,
           options: {
-            delay: 0,
+            delay: 1200,
             presence: "composing"
           },
           text: body.trim()

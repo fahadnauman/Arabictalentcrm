@@ -69,6 +69,9 @@ const LeadCard = React.memo(({ lead }: { lead: any }) => {
   return (
     <Link
       href={`/dashboard/agent/chat/${lead.id}`}
+      onClick={() => {
+        fetch(`/api/leads/${lead.id}/read`, { method: "POST" }).catch(() => {});
+      }}
       className={`${styles.leadCard} transition-all duration-200 ease-out ${tempBorderClass}`}
       style={{
         position: "relative",

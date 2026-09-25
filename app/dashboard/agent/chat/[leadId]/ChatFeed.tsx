@@ -9,6 +9,7 @@ import {
   useMemo,
 } from "react";
 import { sendMessage, recordOutboundMedia, SentMessage } from "@/app/actions/message";
+import { getRandomGreeting } from "@/lib/spintax";
 import { updateLeadInfo } from "@/app/actions/lead";
 import UpdateFollowUpModal from "./UpdateFollowUpModal";
 import styles from "../../agent.module.css";
@@ -260,6 +261,11 @@ export default function ChatFeed({
     };
   }, [leadId]);
 
+  // Trigger 1: Synchronize 'Mark as Read' with host device whenever the chat window is opened
+  useEffect(() => {
+    fetch(`/api/leads/${leadId}/read`, { method: "POST" }).catch(() => {});
+  }, [leadId]);
+
   // Auto-resize textarea up to 5 lines
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setText(e.target.value);
@@ -271,6 +277,9 @@ export default function ChatFeed({
   function handleSend(customBody?: string, retryId?: string) {
     const bodyToSend = (typeof customBody === "string" ? customBody : text).trim();
     if (!bodyToSend) return;
+
+    // Trigger 2: Instantly sync 'Mark as Read' right before an agent sends an outbound reply
+    fetch(`/api/leads/${leadId}/read`, { method: "POST" }).catch(() => {});
 
     const tempId = retryId || `pending-${Date.now()}`;
 
@@ -489,97 +498,155 @@ export default function ChatFeed({
         finalFileName = filename;
       }
 
-      // 1. Direct POST to secure DigitalOcean VPS Nginx endpoint (bypassing Vercel 4.5MB payload limit)
-      const formData = new FormData();
-      formData.append("file", file, finalFileName);
-      formData.append("number", cleanPhone);
-      formData.append("mediatype", computedMediatype);
-      formData.append("mimetype", targetMime);
-      formData.append("fileName", finalFileName);
-      formData.append("caption", finalFileName);
-
-      const res = await fetch(VPS_DIRECT_UPLOAD_URL, {
-        method: "POST",
-        body: formData,
-      });
-
-      const evoData = await res.json().catch(() => null);
-
-      if (!res.ok) {
-        const httpStatus = res.status || 500;
-        const rawResponse = evoData?.response?.message || evoData?.error || (typeof evoData === "string" ? evoData : JSON.stringify(evoData));
-        console.log("Direct VPS Upload Error - exact HTTP status code:", httpStatus);
-        console.log("Direct VPS Upload Error - raw error response:", rawResponse);
-        console.error("[Direct VPS Upload Error]", {
-          status: httpStatus,
-          rawResponse,
-          error: evoData?.error,
-        });
-        setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${evoData?.error || rawResponse || "Check console for details"}`);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...m,
-                  status: "failed",
-                  pending: false,
-                  failed: true,
-                  retryData: { type: "media", file, filename, mimeType },
-                }
-              : m
-          )
-        );
-        setErrorId(tempId);
-        return;
-      }
-
-      // 2. Server responded with 200/201 -> Update specific message to 'sent'
+      // 1. Dispatch upload
+      let evoData: any = null;
       let recordRes: any = null;
-      try {
-        const evoMetadata = {
-          key: { id: evoData?.key?.id || null },
-          keyId: evoData?.key?.id || null,
-          status: evoData?.status || "SENT",
-        };
-        recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
-      } catch (saErr) {
-        console.warn("recordOutboundMedia Server Action exception (handled gracefully):", saErr);
-      }
 
-      if (recordRes?.success && recordRes?.data) {
-        const saved: ChatMessage = recordRes.data;
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...saved,
-                  mediaUrl: localPreviewUrl, // Maintain local preview for agent
-                  status: "SENT",
-                  pending: false,
-                  failed: false,
-                }
-              : m
-          )
-        );
+      if (isAudio) {
+        // WhatsApp Push-To-Talk (PTT) Voice Note: Route through server upload handler with native PTT flags
+        const uploadFormData = new FormData();
+        uploadFormData.append("file", file, finalFileName);
+        uploadFormData.append("leadId", leadId);
+        uploadFormData.append("caption", finalFileName);
+
+        const res = await fetch("/api/messages/upload", {
+          method: "POST",
+          body: uploadFormData,
+        });
+
+        const uploadJson = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          const httpStatus = res.status || 500;
+          const rawResponse = uploadJson?.error || uploadJson?.rawResponse || JSON.stringify(uploadJson);
+          console.error("[Voice Note PTT Upload Error]", { status: httpStatus, rawResponse });
+          setErrorMessage(`⚠ Voice note upload failed (HTTP ${httpStatus}): ${rawResponse || "Check console"}`);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    status: "failed",
+                    pending: false,
+                    failed: true,
+                    retryData: { type: "media", file, filename, mimeType },
+                  }
+                : m
+            )
+          );
+          setErrorId(tempId);
+          return;
+        }
+
+        if (uploadJson?.success && uploadJson?.message) {
+          const saved: ChatMessage = {
+            id: uploadJson.message.id,
+            body: uploadJson.message.body,
+            direction: uploadJson.message.direction,
+            sentAt: uploadJson.message.sentAt,
+            senderName: uploadJson.message.senderName || agentName,
+            status: "SENT",
+            mediaUrl: localPreviewUrl,
+            mediaType: uploadJson.message.mediaType,
+          };
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...saved, pending: false, failed: false } : m))
+          );
+          setErrorId(null);
+          setErrorMessage(null);
+        }
       } else {
-        // Successful WhatsApp delivery with graceful optimistic update
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === tempId
-              ? {
-                  ...m,
-                  id: evoData?.key?.id || tempId,
-                  mediaUrl: localPreviewUrl,
-                  status: "SENT",
-                  pending: false,
-                  failed: false,
-                }
-              : m
-          )
-        );
+        // 2. Non-audio files: Direct POST to VPS Nginx endpoint (bypasses Vercel 4.5MB payload limit)
+        const formData = new FormData();
+        formData.append("file", file, finalFileName);
+        formData.append("number", cleanPhone);
+        formData.append("mediatype", computedMediatype);
+        formData.append("mimetype", targetMime);
+        formData.append("fileName", finalFileName);
+        formData.append("caption", finalFileName);
+
+        const res = await fetch(VPS_DIRECT_UPLOAD_URL, {
+          method: "POST",
+          body: formData,
+        });
+
+        evoData = await res.json().catch(() => null);
+
+        if (!res.ok) {
+          const httpStatus = res.status || 500;
+          const rawResponse = evoData?.response?.message || evoData?.error || (typeof evoData === "string" ? evoData : JSON.stringify(evoData));
+          console.log("Direct VPS Upload Error - exact HTTP status code:", httpStatus);
+          console.log("Direct VPS Upload Error - raw error response:", rawResponse);
+          console.error("[Direct VPS Upload Error]", {
+            status: httpStatus,
+            rawResponse,
+            error: evoData?.error,
+          });
+          setErrorMessage(`⚠ Upload failed (HTTP ${httpStatus}): ${evoData?.error || rawResponse || "Check console for details"}`);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    status: "failed",
+                    pending: false,
+                    failed: true,
+                    retryData: { type: "media", file, filename, mimeType },
+                  }
+                : m
+            )
+          );
+          setErrorId(tempId);
+          return;
+        }
+
+        // Server responded with 200/201 -> Update specific message to 'sent'
+        try {
+          const evoMetadata = {
+            key: { id: evoData?.key?.id || null },
+            keyId: evoData?.key?.id || null,
+            status: evoData?.status || "SENT",
+          };
+          recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
+        } catch (saErr) {
+          console.warn("recordOutboundMedia Server Action exception (handled gracefully):", saErr);
+        }
+
+        if (recordRes?.success && recordRes?.data) {
+          const saved: ChatMessage = recordRes.data;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...saved,
+                    mediaUrl: localPreviewUrl, // Maintain local preview for agent
+                    status: "SENT",
+                    pending: false,
+                    failed: false,
+                  }
+                : m
+            )
+          );
+        } else {
+          // Successful WhatsApp delivery with graceful optimistic update
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === tempId
+                ? {
+                    ...m,
+                    id: evoData?.key?.id || tempId,
+                    mediaUrl: localPreviewUrl,
+                    status: "SENT",
+                    pending: false,
+                    failed: false,
+                  }
+                : m
+            )
+          );
+        }
+        setErrorId(null);
+        setErrorMessage(null);
       }
-      setErrorId(null);
-      setErrorMessage(null);
     } catch (err: any) {
       const httpStatus = err?.status || err?.statusCode || 500;
       const rawResponse = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
@@ -635,18 +702,17 @@ export default function ChatFeed({
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
 
-      let preferredMime = "";
+      // Force the audio format to audio/ogg; codecs=opus for WhatsApp native PTT
+      let preferredMime = "audio/ogg; codecs=opus";
       if (typeof MediaRecorder !== "undefined") {
-        if (MediaRecorder.isTypeSupported("audio/webm; codecs=opus")) {
-          preferredMime = "audio/webm; codecs=opus";
-        } else if (MediaRecorder.isTypeSupported("audio/webm")) {
-          preferredMime = "audio/webm";
-        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
-          preferredMime = "audio/mp4";
-        } else if (MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")) {
+        if (MediaRecorder.isTypeSupported("audio/ogg; codecs=opus")) {
           preferredMime = "audio/ogg; codecs=opus";
         } else if (MediaRecorder.isTypeSupported("audio/ogg")) {
           preferredMime = "audio/ogg";
+        } else if (MediaRecorder.isTypeSupported("audio/webm; codecs=opus")) {
+          preferredMime = "audio/webm; codecs=opus";
+        } else if (MediaRecorder.isTypeSupported("audio/mp4")) {
+          preferredMime = "audio/mp4";
         }
       }
 
@@ -664,12 +730,12 @@ export default function ChatFeed({
           return;
         }
 
-        const actualMime = recorder.mimeType || preferredMime || "audio/webm";
+        const actualMime = recorder.mimeType || preferredMime || "audio/ogg; codecs=opus";
         const blob = new Blob(audioChunksRef.current, { type: actualMime });
         audioChunksRef.current = [];
 
-        let ext = "webm";
-        if (actualMime.includes("ogg")) ext = "ogg";
+        let ext = "ogg";
+        if (actualMime.includes("ogg") || actualMime.includes("opus")) ext = "ogg";
         else if (actualMime.includes("mp4") || actualMime.includes("m4a")) ext = "m4a";
         else if (actualMime.includes("wav")) ext = "wav";
         else if (actualMime.includes("webm")) ext = "webm";
@@ -1223,6 +1289,34 @@ export default function ChatFeed({
                   <div style={{ fontSize: "0.65rem", textTransform: "uppercase", color: "#8b8aa8", padding: "0.2rem 0.5rem", fontWeight: 700 }}>
                     Quick Actions
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const greeting = getRandomGreeting();
+                      setText((prev) => (prev ? `${prev} ${greeting}` : greeting));
+                      setShowMenu(false);
+                      if (textareaRef.current) {
+                        textareaRef.current.focus();
+                      }
+                    }}
+                    style={{
+                      padding: "0.5rem 0.65rem",
+                      borderRadius: "8px",
+                      border: "1px solid rgba(32, 201, 151, 0.25)",
+                      background: "rgba(32, 201, 151, 0.1)",
+                      color: "#20C997",
+                      textAlign: "left",
+                      fontSize: "0.8rem",
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "0.4rem",
+                    }}
+                  >
+                    <span>💬</span>
+                    <span>Anti-Ban Greeting</span>
+                  </button>
                   <button
                     type="button"
                     onClick={() => {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { verifyToken, COOKIE_NAME } from "@/lib/auth";
+import { markChatAsRead } from "@/app/actions/message";
 
 const EVO_URL = process.env.EVO_API_URL || "http://143.198.182.24:8080";
 const EVO_KEY = process.env.EVO_API_KEY || "arabictalent-api-key-2024";
@@ -170,6 +171,9 @@ export async function POST(req: Request) {
 
     const toPhone = lead.phone.replace(/\D/g, "");
 
+    // Trigger 2: Instantly sync mark as read right before sending outbound reply
+    await markChatAsRead(leadId).catch((err) => console.warn("Auto markChatAsRead error in upload:", err));
+
     try {
       if (isAudio) {
         // WhatsApp Audio / Voice Note (PTT)
@@ -183,8 +187,15 @@ export async function POST(req: Request) {
           body: JSON.stringify({
             number: toPhone,
             audio: cleanBase64,
-            delay: 1200,
+            ptt: true,
+            voice: true,
+            delay: 1500,
             encoding: true,
+            options: {
+              presence: "recording",
+              delay: 1500,
+              encoding: true,
+            },
           }),
         });
 

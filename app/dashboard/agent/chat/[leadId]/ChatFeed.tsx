@@ -224,7 +224,7 @@ export default function ChatFeed({
             prev.every(
               (m, i) =>
                 m.id === freshMsgs[i]?.id &&
-                (m.status || "").toUpperCase() === (freshMsgs[i]?.status || "").toUpperCase() &&
+                String(m.status ?? "").toUpperCase() === String(freshMsgs[i]?.status ?? "").toUpperCase() &&
                 !m.pending &&
                 !m.failed &&
                 m.status !== "pending" &&
@@ -1072,7 +1072,7 @@ export default function ChatFeed({
                   <span className={chatStyles.bubbleTime}>{fmtTime(msg.sentAt)}</span>
                   {isOut && (
                     <span className={chatStyles.bubbleStatus}>
-                      {msg.status === "failed" || msg.failed ? (
+                      {msg.status === "failed" || msg.status === "FAILED" || msg.failed ? (
                         <span className={chatStyles.statusFailed}>
                           <span>⚠ Failed</span>
                           <button
@@ -1090,7 +1090,7 @@ export default function ChatFeed({
                             Retry
                           </button>
                         </span>
-                      ) : msg.status === "pending" || msg.pending ? (
+                      ) : msg.status === "pending" || msg.status === "PENDING" || msg.status === "QUEUED" || msg.status === "0" || msg.pending ? (
                         <span className={chatStyles.statusClock} title="Sending…">
                           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="12" cy="12" r="10" />
@@ -1098,10 +1098,12 @@ export default function ChatFeed({
                           </svg>
                         </span>
                       ) : (() => {
-                        const st = (msg.status || "").toUpperCase();
-                        const isPlayed = st === "PLAYED";
-                        const isRead = st === "READ" || isPlayed;
-                        const isDelivered = st === "DELIVERED";
+                        const raw = String(msg.status ?? "").trim().toUpperCase();
+                        // Ack 3 = Read (Double Blue), Ack 4 = Played (Voice Note Double Blue)
+                        const isPlayed = raw === "4" || raw === "PLAYED";
+                        const isRead = raw === "3" || raw === "READ" || isPlayed;
+                        // Ack 2 = Delivered (Double Grey)
+                        const isDelivered = raw === "2" || raw === "DELIVERED";
 
                         if (isRead) {
                           return (
@@ -1125,6 +1127,7 @@ export default function ChatFeed({
                             </span>
                           );
                         }
+                        // Ack 1 = Sent (Single Grey) or default
                         return (
                           <span
                             className={chatStyles.statusSent}

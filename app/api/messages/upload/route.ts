@@ -176,6 +176,24 @@ export async function POST(req: Request) {
 
     try {
       if (isAudio) {
+        // Anti-Ban Human Simulation: Fire presence: "recording" before dispatching voice note
+        try {
+          await fetch(`${EVO_URL}/chat/sendPresence/${EVO_INSTANCE}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: EVO_KEY,
+            },
+            body: JSON.stringify({
+              number: `${toPhone}@s.whatsapp.net`,
+              presence: "recording",
+              delay: 5000,
+            }),
+          });
+        } catch (presenceErr) {
+          console.warn("Evolution API sendPresence recording failed in upload:", presenceErr);
+        }
+
         // WhatsApp Audio / Voice Note (PTT)
         const cleanBase64 = base64Data.trim().replace(/[\r\n\s]/g, "");
         const res = await fetch(`${EVO_URL}/message/sendWhatsAppAudio/${EVO_INSTANCE}`, {
@@ -187,6 +205,7 @@ export async function POST(req: Request) {
           body: JSON.stringify({
             number: toPhone,
             audio: cleanBase64,
+            mimetype: "audio/mp4",
             ptt: true,
             voice: true,
             delay: 1500,

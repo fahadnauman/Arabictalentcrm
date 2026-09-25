@@ -247,6 +247,24 @@ export async function sendMessage(
         : `attachment_${Date.now()}.${ext}`;
 
       if (isAudio) {
+        // Anti-Ban Human Simulation: Fire presence: "recording" before dispatching voice note
+        try {
+          await fetch(`${EVO_URL}/chat/sendPresence/${EVO_INSTANCE}`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              apikey: EVO_KEY,
+            },
+            body: JSON.stringify({
+              number: `${toPhone}@s.whatsapp.net`,
+              presence: "recording",
+              delay: 5000,
+            }),
+          });
+        } catch (presenceErr) {
+          console.warn("Evolution API sendPresence recording failed:", presenceErr);
+        }
+
         // WhatsApp Audio / Voice Note (PTT)
         // Clean and buffer the audio payload into a pure Base64 string
         const cleanBase64 = base64Data.trim().replace(/[\r\n\s]/g, "");
@@ -263,6 +281,7 @@ export async function sendMessage(
           body: JSON.stringify({
             number: toPhone,
             audio: formattedBase64,
+            mimetype: "audio/mp4",
             ptt: true,
             voice: true,
             delay: 1500,
@@ -338,18 +357,22 @@ export async function sendMessage(
     } else {
       // 1. Anti-Ban Human Simulation: Fire presence: "composing" to show "typing..." on recipient's phone
       try {
-        await fetch(`${EVO_URL}/chat/sendPresence/${EVO_INSTANCE}`, {
+        const presenceRes = await fetch(`${EVO_URL}/chat/sendPresence/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             apikey: EVO_KEY,
           },
           body: JSON.stringify({
-            number: toPhone,
+            number: `${toPhone}@s.whatsapp.net`,
             presence: "composing",
-            delay: 1200,
+            delay: 10000,
           }),
         });
+        if (!presenceRes.ok) {
+          const errText = await presenceRes.text();
+          console.warn(`Evolution API sendPresence HTTP ${presenceRes.status}:`, errText);
+        }
       } catch (presenceErr) {
         console.warn("Evolution API sendPresence failed:", presenceErr);
       }

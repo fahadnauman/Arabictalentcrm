@@ -21,8 +21,55 @@ export async function POST(req: Request) {
 
     // Evolution API sends events like messages.upsert / MESSAGES_UPSERT, messages.update / MESSAGES_UPDATE, connection.update / CONNECTION_UPDATE, and qrcode.updated
     const rawEvent = (payload.event || payload.type || "").toString().toLowerCase().replace(/[._-]/g, "");
-    const isUpdate = rawEvent === "messagesupdate" || rawEvent === "messageupdate";
-    const isUpsert = rawEvent === "messagesupsert" || rawEvent === "messageupsert";
+
+    // Aggressive Status Detection: process any payload containing a status/ack field,
+    // even if the top-level event string is missing, undefined, or generic.
+    const hasStatus = (obj: any): boolean => {
+      if (!obj || typeof obj !== "object") return false;
+      if (obj.status !== undefined || obj.ack !== undefined) return true;
+      if (obj.update?.status !== undefined || obj.update?.ack !== undefined) return true;
+      if (Array.isArray(obj.update) && obj.update.some((u: any) => u && (u.status !== undefined || u.ack !== undefined))) return true;
+      if (obj.data) {
+        if (obj.data.status !== undefined || obj.data.ack !== undefined) return true;
+        if (obj.data.update?.status !== undefined || obj.data.update?.ack !== undefined) return true;
+        if (Array.isArray(obj.data)) {
+          return obj.data.some((item: any) =>
+            item && (
+              item.status !== undefined ||
+              item.ack !== undefined ||
+              item.update?.status !== undefined ||
+              item.update?.ack !== undefined ||
+              (Array.isArray(item.update) && item.update.some((u: any) => u && (u.status !== undefined || u.ack !== undefined)))
+            )
+          );
+        }
+      }
+      if (Array.isArray(obj)) {
+        return obj.some((item: any) =>
+          item && (
+            item.status !== undefined ||
+            item.ack !== undefined ||
+            item.update?.status !== undefined ||
+            item.update?.ack !== undefined
+          )
+        );
+      }
+      return false;
+    };
+
+    const isUpdateEvent = rawEvent === "messagesupdate" || rawEvent === "messageupdate";
+    const isUpdate = isUpdateEvent || hasStatus(payload);
+
+    const isUpsert =
+      rawEvent === "messagesupsert" ||
+      rawEvent === "messageupsert" ||
+      (!isUpdate && Boolean(
+        payload.message ||
+        payload.data?.message ||
+        (payload.key && !payload.key.fromMe) ||
+        (payload.data?.key && !payload.data.key.fromMe)
+      ));
+
     const isConnectionUpdate =
       rawEvent === "connectionupdate" ||
       payload.event === "connection.update" ||
@@ -77,14 +124,17 @@ export async function POST(req: Request) {
     }
 
     if (isUpdate) {
-      // ── Bulletproof extraction: handles array, nested array, or single object ──
-      const updates: any[] = Array.isArray(payload.data)
-        ? payload.data
-        : Array.isArray(payload)
-        ? payload
-        : payload.data
-        ? [payload.data]
-        : [payload];
+      // ── Bulletproof extraction: handles array, nested array, single object, or payload itself ──
+      let updates: any[] = [];
+      if (Array.isArray(payload.data)) {
+        updates = payload.data;
+      } else if (Array.isArray(payload)) {
+        updates = payload;
+      } else if (payload.data && typeof payload.data === "object") {
+        updates = [payload.data];
+      } else {
+        updates = [payload];
+      }
 
       for (const updateObj of updates) {
         if (!updateObj) continue;
@@ -93,15 +143,31 @@ export async function POST(req: Request) {
           updateObj.key?.id ||
           updateObj.id ||
           updateObj.messageId ||
-          updateObj.keyId;
+          updateObj.keyId ||
+          updateObj.update?.key?.id ||
+          updateObj.update?.id ||
+          payload.key?.id ||
+          payload.id ||
+          payload.messageId ||
+          payload.data?.key?.id ||
+          payload.data?.id;
 
         // Extract ack from all known Evolution API payload shapes:
         // update.status (string), update.ack (int), status (string/int), ack (int)
         const rawAck =
+          (Array.isArray(updateObj.update) ? (updateObj.update[0]?.status ?? updateObj.update[0]?.ack) : null) ??
           updateObj.update?.status ??
           updateObj.update?.ack ??
           updateObj.status ??
-          updateObj.ack;
+          updateObj.ack ??
+          updateObj.data?.status ??
+          updateObj.data?.ack ??
+          updateObj.data?.update?.status ??
+          updateObj.data?.update?.ack ??
+          payload.status ??
+          payload.ack ??
+          payload.update?.status ??
+          payload.update?.ack;
 
         if (rawAck === undefined || rawAck === null) continue;
 
@@ -142,15 +208,25 @@ export async function POST(req: Request) {
 
         if (!newStatus) continue;
 
-        // Extract remoteJid from update payload
+        // Extract remoteJid from update payload (checking all Evolution payload shapes)
         let remoteJid =
           updateObj.key?.remoteJid ||
           updateObj.remoteJid ||
           updateObj.key?.participant ||
           updateObj.participant ||
+          updateObj.update?.key?.remoteJid ||
+          updateObj.update?.remoteJid ||
+          updateObj.data?.key?.remoteJid ||
+          updateObj.data?.remoteJid ||
+          updateObj.number ||
+          updateObj.from ||
+          updateObj.to ||
           payload.data?.key?.remoteJid ||
           payload.data?.remoteJid ||
+          payload.data?.number ||
           payload.key?.remoteJid ||
+          payload.remoteJid ||
+          payload.number ||
           "";
 
         // If rawSid is a compound key (e.g. true_14632170744@s.whatsapp.net_3EB0...), extract remoteJid

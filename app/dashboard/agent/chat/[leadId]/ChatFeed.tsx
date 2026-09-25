@@ -419,9 +419,10 @@ export default function ChatFeed({
       );
     } else {
       // 1. Instantly append temporary optimistic media object with 'pending' status
+      const isVisualOpt = mimeType.startsWith("image/") || mimeType.startsWith("video/");
       const optimistic: ChatMessage = {
         id:         tempId,
-        body:       filename,
+        body:       isVisualOpt ? "" : filename,
         direction:  "OUTBOUND",
         sentAt:     new Date().toISOString(),
         senderName: agentName,
@@ -567,13 +568,16 @@ export default function ChatFeed({
         }
       } else {
         // 2. Non-audio files: Direct POST to VPS Nginx endpoint (bypasses Vercel 4.5MB payload limit)
+        const isVisualMedia = computedMediatype === "image" || computedMediatype === "video";
         const formData = new FormData();
         formData.append("file", file, finalFileName);
         formData.append("number", cleanPhone);
         formData.append("mediatype", computedMediatype);
-        formData.append("mimetype", targetMime);
-        formData.append("fileName", finalFileName);
-        formData.append("caption", finalFileName);
+        if (!isVisualMedia) {
+          formData.append("mimetype", targetMime);
+          formData.append("fileName", finalFileName);
+          formData.append("caption", finalFileName);
+        }
 
         const res = await fetch(VPS_DIRECT_UPLOAD_URL, {
           method: "POST",
@@ -617,7 +621,7 @@ export default function ChatFeed({
             keyId: evoData?.key?.id || null,
             status: evoData?.status || "SENT",
           };
-          recordRes = await recordOutboundMedia(leadId, finalFileName, targetMime, evoMetadata);
+          recordRes = await recordOutboundMedia(leadId, isVisualMedia ? "" : finalFileName, targetMime, evoMetadata);
         } catch (saErr) {
           console.warn("recordOutboundMedia Server Action exception (handled gracefully):", saErr);
         }
@@ -973,11 +977,17 @@ export default function ChatFeed({
                   const hasMedia = isImg || isVid || isAud || isDoc || !!msg.mediaUrl;
                   const mediaSrc = msg.mediaUrl || (hasMedia ? `/api/media/${msg.id}` : null);
 
+                  const isMediaFileName =
+                    hasMedia &&
+                    (isImg || isVid) &&
+                    /\.(jpg|jpeg|png|webp|gif|mp4|mov|webm|mkv|3gp|avi)$/i.test(msg.body.trim());
+
                   const isFallbackText = 
                     !msg.body ||
                     msg.body.trim() === "Media Attachment" || 
                     msg.body.trim().startsWith("voice_note.") || 
-                    msg.body.trim() === "Voice Note";
+                    msg.body.trim() === "Voice Note" ||
+                    isMediaFileName;
 
                   const showCaption = !isFallbackText && msg.body.trim().length > 0;
 

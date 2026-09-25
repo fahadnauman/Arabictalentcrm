@@ -115,11 +115,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // Persist to DB with verified targetMime
+    const isVisualMedia = computedMediatype === "image" || computedMediatype === "video";
+
+    // Persist to DB with verified targetMime (clean empty body for visual media unless user typed a caption)
     let msg = await prisma.message.create({
       data: {
         leadId,
-        body: caption.trim() || fileName,
+        body: caption.trim() || (isVisualMedia ? "" : fileName),
         direction: "OUTBOUND",
         status: "SENT",
         sentById: user.id,
@@ -239,24 +241,37 @@ export async function POST(req: Request) {
         }
         rawBase64 = rawBase64.replace(/[\r\n\s]/g, "");
 
+        const isVisualMedia = computedMediatype === "image" || computedMediatype === "video";
+
+        // For images and videos: completely remove fileName property from JSON payload
+        // Only pass number, mediatype, and media (base64) so it renders as a clean, captionless image bubble in WhatsApp
+        const sendMediaPayload: Record<string, any> = isVisualMedia
+          ? {
+              number: toPhone,
+              mediatype: computedMediatype,
+              media: rawBase64,
+              ...(caption.trim() ? { caption: caption.trim() } : {}),
+            }
+          : {
+              number: toPhone,
+              options: {
+                delay: 0,
+                presence: "composing",
+              },
+              mediatype: computedMediatype,
+              mimetype: targetMime,
+              caption: caption.trim() || "",
+              media: rawBase64,
+              fileName: originalName,
+            };
+
         const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             apikey: EVO_KEY,
           },
-          body: JSON.stringify({
-            number: toPhone,
-            options: {
-              delay: 0,
-              presence: "composing",
-            },
-            mediatype: computedMediatype,
-            mimetype: targetMime,
-            caption: caption.trim() || "",
-            media: rawBase64,
-            fileName: originalName,
-          }),
+          body: JSON.stringify(sendMediaPayload),
         });
 
         if (!res.ok) {

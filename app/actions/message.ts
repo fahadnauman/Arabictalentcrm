@@ -336,24 +336,34 @@ export async function sendMessage(
           }).catch((err) => console.error("Failed to update message twilioSid:", err));
         }
       } else {
+        const isVisualMedia = computedMediatype === "image" || computedMediatype === "video";
+        const mediaPayload: Record<string, any> = isVisualMedia
+          ? {
+              number: toPhone,
+              mediatype: computedMediatype,
+              media: base64Data,
+              ...(body.trim() ? { caption: body.trim() } : {}),
+            }
+          : {
+              number: toPhone,
+              options: {
+                delay: 0,
+                presence: "composing"
+              },
+              mediatype: computedMediatype,
+              mimetype: mType,
+              caption: body.trim() || "",
+              media: base64Data,
+              fileName: fileName
+            };
+
         const res = await fetch(`${EVO_URL}/message/sendMedia/${EVO_INSTANCE}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             "apikey": EVO_KEY
           },
-          body: JSON.stringify({
-            number: toPhone,
-            options: {
-              delay: 0,
-              presence: "composing"
-            },
-            mediatype: computedMediatype,
-            mimetype: mType,
-            caption: body.trim() || "",
-            media: base64Data,
-            fileName: fileName
-          })
+          body: JSON.stringify(mediaPayload)
         });
 
         if (!res.ok) {
@@ -583,10 +593,11 @@ export async function recordOutboundMedia(
         }
       }
 
+      const isVisual = sanitizedMimeType?.startsWith("image/") || sanitizedMimeType?.startsWith("video/");
       msg = await prisma.message.create({
         data: {
           leadId,
-          body: sanitizedFileName,
+          body: isVisual ? "" : sanitizedFileName,
           direction: "OUTBOUND",
           status: "SENT",
           sentById: user.id,
